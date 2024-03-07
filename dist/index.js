@@ -5,6 +5,7 @@ require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 const path = __nccwpck_require__(1017);
+const fs = __nccwpck_require__(7147);
 const core = __nccwpck_require__(2186);
 const tc = __nccwpck_require__(7784);
 
@@ -21,12 +22,24 @@ async function setup() {
     // Get version of tool to be installed
     const version = core.getInput("version");
 
-    const pathToCr = await tc.downloadTool(getCrDownloadUrl(version));
-    const pathToCaps = await tc.downloadTool(getCapsDownloadUrl(version));
+    const pathToCr = await tc.downloadTool(
+      getCrDownloadUrl(version),
+      "/home/runner/bin/cr"
+    );
+    const pathToCaps = await tc.downloadTool(
+      getCapsDownloadUrl(version),
+      "/home/runner/bin/caps"
+    );
 
     // Expose the tool by adding it to the PATH
-    core.addPath(pathToCr);
-    core.addPath(pathToCaps);
+    fs.chmodSync(pathToCr, 0o755);
+    core.addPath(path.dirname(pathToCr));
+
+    console.log(`add to path: ${pathToCr}`);
+
+    fs.chmodSync(pathToCaps, 0o755);
+    core.addPath(path.dirname(pathToCaps));
+    console.log(`add to path: ${pathToCaps}`);
   } catch (e) {
     core.setFailed(e);
   }
@@ -35,6 +48,7 @@ async function setup() {
 module.exports = setup;
 
 if (require.main === require.cache[eval('__filename')]) {
+  console.log("Running setup");
   setup();
 }
 

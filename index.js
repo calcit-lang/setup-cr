@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 const core = require("@actions/core");
 const tc = require("@actions/tool-cache");
 
@@ -15,13 +16,22 @@ async function setup() {
     // Get version of tool to be installed
     const version = core.getInput("version");
 
-    const pathToCr = await tc.downloadTool(getCrDownloadUrl(version));
-    const pathToCaps = await tc.downloadTool(getCapsDownloadUrl(version));
+    const pathToCr = await tc.downloadTool(
+      getCrDownloadUrl(version),
+      "/home/runner/bin/cr"
+    );
+    const pathToCaps = await tc.downloadTool(
+      getCapsDownloadUrl(version),
+      "/home/runner/bin/caps"
+    );
 
     // Expose the tool by adding it to the PATH
+    fs.chmodSync(pathToCr, 0o755);
     core.addPath(path.dirname(pathToCr));
+
     console.log(`add to path: ${pathToCr}`);
 
+    fs.chmodSync(pathToCaps, 0o755);
     core.addPath(path.dirname(pathToCaps));
     console.log(`add to path: ${pathToCaps}`);
   } catch (e) {
