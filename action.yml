@@ -10,7 +10,6 @@ runs:
   using: node20
   main: dist/index.js
 
-icon: arrow-up-circle
 branding:
   icon: cloud-snow
-  color: #ccf
+  color: blue
