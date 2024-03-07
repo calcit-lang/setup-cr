@@ -19,8 +19,11 @@ async function setup() {
     const pathToCaps = await tc.downloadTool(getCapsDownloadUrl(version));
 
     // Expose the tool by adding it to the PATH
-    core.addPath(pathToCr);
-    core.addPath(pathToCaps);
+    core.addPath(path.dirname(pathToCr));
+    console.log(`add to path: ${pathToCr}`);
+
+    core.addPath(path.dirname(pathToCaps));
+    console.log(`add to path: ${pathToCaps}`);
   } catch (e) {
     core.setFailed(e);
   }
@@ -29,5 +32,6 @@ async function setup() {
 module.exports = setup;
 
 if (require.main === module) {
+  console.log("Running setup");
   setup();
 }
