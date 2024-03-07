@@ -11,10 +11,11 @@ let getCapsDownloadUrl = (version) => {
   return `https://github.com/calcit-lang/calcit/releases/download/${version}/caps`;
 };
 
+const version = core.getInput("version");
+
 async function setup() {
   try {
     // Get version of tool to be installed
-    const version = core.getInput("version");
 
     const pathToCr = await tc.downloadTool(
       getCrDownloadUrl(version),
@@ -24,6 +25,9 @@ async function setup() {
       getCapsDownloadUrl(version),
       "/home/runner/bin/caps"
     );
+
+    // TODO cache
+    // https://github.com/actions/toolkit/tree/main/packages/tool-cache#cache
 
     // Expose the tool by adding it to the PATH
     fs.chmodSync(pathToCr, 0o755);
@@ -42,6 +46,6 @@ async function setup() {
 module.exports = setup;
 
 if (require.main === module) {
-  console.log("Running setup");
+  console.log(`Setting up Calcit ${version}`);
   setup();
 }
