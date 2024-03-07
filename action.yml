@@ -1,0 +1,11 @@
+
+name: setup-cr
+description: Setup Calcit runner
+inputs:
+  version:
+    description: Version of Calcit install
+    required: true
+    default: 0.8.38
+runs:
+  using: node20
+  main: index.js

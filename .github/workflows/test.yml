@@ -1,0 +1,34 @@
+name: Tests
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        version: [ 0.8.38 ]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Calcit
+      uses: ./
+      with:
+        version: ${{ matrix.version }}
+
+    - name: Capture Calcit
+      run: |
+        cr --help
+        caps --help
+        cr -e "range 100"
