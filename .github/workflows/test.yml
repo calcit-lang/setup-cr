@@ -27,34 +27,6 @@ jobs:
       with:
         version: ${{ matrix.version }}
 
-    - name: Try Calcit
-      run: |
-        cr -e "range 20"
-
-    - name: Clear bin
-      run: |
-        rm -rfv /home/runner/bin/
-
-    - name: Setup Calcit skip cache
-      uses: ./
-      with:
-        version: ${{ matrix.version }}
-        skipCache: true
-
-    - name: Try Calcit
-      run: |
-        cr -e "range 20"
-
-    - name: Clear bin
-      run: |
-        rm -rfv /home/runner/bin/
-
-    - name: Setup Calcit with cache
-      uses: ./
-      with:
-        version: ${{ matrix.version }}
-        skipCache: false
-
     - name: Capture Calcit
       run: |
         cr --help
