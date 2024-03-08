@@ -29,6 +29,26 @@ jobs:
 
     - name: Capture Calcit
       run: |
+        cr -e "range 20"
+
+    - name: Setup Calcit
+      uses: ./
+      with:
+        version: ${{ matrix.version }}
+        skipCache: true
+
+    - name: Capture Calcit
+      run: |
+        cr -e "range 20"
+
+    - name: Setup Calcit
+      uses: ./
+      with:
+        version: ${{ matrix.version }}
+        skipCache: false
+
+    - name: Capture Calcit
+      run: |
         cr --help
         caps --help
         cr -e "range 100"

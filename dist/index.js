@@ -9,37 +9,32 @@ const fs = __nccwpck_require__(7147);
 const core = __nccwpck_require__(2186);
 const tc = __nccwpck_require__(7784);
 
-let getCrDownloadUrl = (version) => {
-  return `https://github.com/calcit-lang/calcit/releases/download/${version}/cr`;
-};
+const version = core.getInput("version");
+const skipCache = core.getInput("skipCache");
 
-let getCapsDownloadUrl = (version) => {
-  return `https://github.com/calcit-lang/calcit/releases/download/${version}/caps`;
-};
+const binFolder = `/home/runner/bin/`;
 
-async function setup() {
+async function setup(bin) {
   try {
     // Get version of tool to be installed
-    const version = core.getInput("version");
 
-    const pathToCr = await tc.downloadTool(
-      getCrDownloadUrl(version),
-      "/home/runner/bin/cr"
-    );
-    const pathToCaps = await tc.downloadTool(
-      getCapsDownloadUrl(version),
-      "/home/runner/bin/caps"
-    );
+    let url = `https://github.com/calcit-lang/calcit/releases/download/${version}/${bin}`;
 
-    // Expose the tool by adding it to the PATH
-    fs.chmodSync(pathToCr, 0o755);
-    core.addPath(path.dirname(pathToCr));
+    let prevCr = tc.find(bin, version);
+    let binPath = `${binFolder}${bin}`;
 
-    console.log(`add to path: ${pathToCr}`);
-
-    fs.chmodSync(pathToCaps, 0o755);
-    core.addPath(path.dirname(pathToCaps));
-    console.log(`add to path: ${pathToCaps}`);
+    if (prevCr && !skipCache) {
+      fs.copyFileSync(prevCr, binPath);
+      console.log(`use cached: ${prevCr}`);
+    } else {
+      const pathToCr = await tc.downloadTool(url, binPath);
+      console.log(`downloaded to: ${pathToCr}`);
+      const cachedPath = await tc.cacheFile(pathToCr, bin, bin, version);
+      console.log(`cached to: ${cachedPath}`);
+    }
+    fs.chmodSync(binPath, 0o755);
+    core.addPath(binFolder);
+    console.log(`add binary to path: ${binPath}`);
   } catch (e) {
     core.setFailed(e);
   }
@@ -48,8 +43,9 @@ async function setup() {
 module.exports = setup;
 
 if (require.main === require.cache[eval('__filename')]) {
-  console.log("Running setup");
-  setup();
+  console.log(`Setting up Calcit ${version}`);
+  setup("cr");
+  setup("caps");
 }
 
 

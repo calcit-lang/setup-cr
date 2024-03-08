@@ -6,6 +6,10 @@ inputs:
     description: Version of Calcit install
     required: true
     default: 0.8.38
+  skipCache:
+    description: Disable Cache
+    required: false
+    default: false
 runs:
   using: node20
   main: dist/index.js
