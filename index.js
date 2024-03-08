@@ -14,16 +14,23 @@ async function setup(bin) {
 
     let url = `https://github.com/calcit-lang/calcit/releases/download/${version}/${bin}`;
 
-    let prevCr = tc.find(bin, version);
+    let prevCr = tc.find(bin, version, "ubuntu");
     let binPath = `${binFolder}${bin}`;
 
+    console.log(`cache is: ${prevCr}`);
     if (prevCr && !skipCache) {
       fs.copyFileSync(prevCr, binPath);
       console.log(`use cached: ${prevCr}`);
     } else {
       const pathToCr = await tc.downloadTool(url, binPath);
       console.log(`downloaded to: ${pathToCr}`);
-      const cachedPath = await tc.cacheFile(pathToCr, bin, bin, version);
+      const cachedPath = await tc.cacheFile(
+        pathToCr,
+        bin,
+        bin,
+        version,
+        "ubuntu"
+      );
       console.log(`cached to: ${cachedPath}`);
     }
     fs.chmodSync(binPath, 0o755);
