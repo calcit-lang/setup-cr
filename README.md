@@ -1,21 +1,19 @@
-## Action to setup Calcit
+## Action to setup [Calcit scripting language](https://calcit-lang.org/)
 
 basic usages:
 
 - `cr` command
 - `caps` command
 
-TODO: caching.
-
 ### Usage
 
 ```yml
-- uses: calcit-lang/setup-cr@0.0.2
+- uses: calcit-lang/setup-cr@0.0.3
   with:
-    version: "0.8.38"
+    version: "0.8.43"
 ```
 
-Find latest version on https://github.com/calcit-lang/calcit/releases .
+Calcit latest: ![Calcit Version](https://img.shields.io/github/v/release/calcit-lang/calcit)
 
 ### License
 
