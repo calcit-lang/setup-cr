@@ -10,7 +10,7 @@ basic usages:
 ```yml
 - uses: calcit-lang/setup-cr@0.0.3
   with:
-    version: "0.9.0"
+    version: "0.9.1"
 ```
 
 Calcit latest: ![Calcit Version](https://img.shields.io/github/v/release/calcit-lang/calcit)
