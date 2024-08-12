@@ -1,6 +1,6 @@
 {
   "name": "setup-cr",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Setup Calcit runtime",
   "main": "./index.js",
   "repository": "git@github.com:calcit-lang/setup-cr.git",

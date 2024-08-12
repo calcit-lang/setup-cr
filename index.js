@@ -4,6 +4,7 @@ const core = require("@actions/core");
 const tc = require("@actions/tool-cache");
 
 const version = core.getInput("version");
+const bundler = core.getInput("bundler");
 
 const binFolder = `/home/runner/bin/`;
 
@@ -31,4 +32,7 @@ if (require.main === module) {
   console.log(`Setting up Calcit ${version}`);
   setup("cr");
   setup("caps");
+  if (bundler) {
+    setup("bundle_calcit");
+  }
 }

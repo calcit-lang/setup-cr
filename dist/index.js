@@ -10,6 +10,7 @@ const core = __nccwpck_require__(2186);
 const tc = __nccwpck_require__(7784);
 
 const version = core.getInput("version");
+const bundler = core.getInput("bundler");
 
 const binFolder = `/home/runner/bin/`;
 
@@ -37,6 +38,9 @@ if (require.main === require.cache[eval('__filename')]) {
   console.log(`Setting up Calcit ${version}`);
   setup("cr");
   setup("caps");
+  if (bundler) {
+    setup("bundle_calcit");
+  }
 }
 
 

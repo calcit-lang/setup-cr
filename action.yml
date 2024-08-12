@@ -3,9 +3,13 @@ name: setup-cr
 description: Setup Calcit runner
 inputs:
   version:
-    description: Version of Calcit install
+    description: "Version of Calcit to install"
     required: true
-    default: 0.8.38
+    default: 0.9.2
+  bundler:
+    description: "download calcit bunder_command"
+    required: false
+    default: false
 
 runs:
   using: node20
