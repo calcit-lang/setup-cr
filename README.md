@@ -9,7 +9,7 @@ basic usages:
 ### Usage
 
 ```yml
-- uses: calcit-lang/setup-cr@0.0.4
+- uses: calcit-lang/setup-cr@0.0.6
   with:
     version: "0.9.4"
     bundler: false
