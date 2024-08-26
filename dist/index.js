@@ -8,8 +8,9 @@ const path = __nccwpck_require__(1017);
 const fs = __nccwpck_require__(7147);
 const core = __nccwpck_require__(2186);
 const tc = __nccwpck_require__(7784);
+const { to_js_data, parse_cirru_edn } = __nccwpck_require__(1618);
 
-const version = core.getInput("version");
+let version = null;
 const bundler = core.getInput("bundler");
 
 const binFolder = `/home/runner/bin/`;
@@ -35,6 +36,25 @@ async function setup(bin) {
 module.exports = setup;
 
 if (require.main === require.cache[eval('__filename')]) {
+  if (fs.existsSync("deps.cirru")) {
+    console.log("Reading deps.cirru");
+    const depsCirru = fs.readFileSync("deps.cirru", "utf8");
+    const deps = to_js_data(parse_cirru_edn(depsCirru));
+    console.log("deps", deps);
+    version = deps["calcit-version"];
+  }
+
+  if (!version) {
+    version = core.getInput("version");
+  }
+
+  if (!version) {
+    core.setFailed(
+      "Version is not set, neither in deps.cirru (calcit-verison) nor in input(version)"
+    );
+    return;
+  }
+
   console.log(`Setting up Calcit ${version}`);
   setup("cr");
   setup("caps");
@@ -4646,6 +4666,794 @@ function _unique(values) {
     return Array.from(new Set(values));
 }
 //# sourceMappingURL=tool-cache.js.map
+
+/***/ }),
+
+/***/ 1910:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+var __webpack_unused_export__;
+
+__webpack_unused_export__ = ({ value: true });
+exports.Q = void 0;
+const types_1 = __nccwpck_require__(6809);
+const tree_1 = __nccwpck_require__(8627);
+let graspeExprs = (pullToken) => {
+    let acc = [];
+    let pointer = acc;
+    let pointerStack = [];
+    while (true) {
+        let cursor = pullToken();
+        // console.log(pointerStack, pointer, cursor);
+        switch (cursor) {
+            case types_1.ELexControl.close:
+                if (pointerStack.length === 0) {
+                    return pointer;
+                }
+                let collected = pointer;
+                pointer = pointerStack.pop();
+                pointer.push(collected);
+                break;
+            case types_1.ELexControl.open:
+                pointerStack.push(pointer);
+                pointer = [];
+                break;
+            case types_1.ELexControl.close:
+                throw new Error("Unexpected close token");
+            default:
+                if ((0, tree_1.isString)(cursor)) {
+                    pointer.push(cursor);
+                    break;
+                }
+                else {
+                    console.log(JSON.stringify(cursor));
+                    throw new Error("Unknown cursor");
+                }
+        }
+    }
+};
+let buildExprs = (pullToken) => {
+    let acc = [];
+    while (true) {
+        let chunk = pullToken();
+        if (chunk === types_1.ELexControl.open) {
+            let expr = graspeExprs(pullToken);
+            acc.push(expr);
+            continue;
+        }
+        else if (chunk == null) {
+            return acc;
+        }
+        else if (chunk === types_1.ELexControl.close) {
+            throw new Error(`Unexpected ")"`);
+        }
+        else {
+            throw new Error(`Unexpected chunk ${JSON.stringify(chunk)}`);
+        }
+    }
+};
+let parseIndentation = (buffer) => {
+    let size = buffer.length;
+    if ((0, tree_1.isOdd)(size)) {
+        throw new Error(`Invalid indentation size ${size}`);
+    }
+    return size / 2;
+};
+let lex = (initialCode) => {
+    let acc = [];
+    let state = types_1.ELexState.indent;
+    let buffer = "";
+    let code = initialCode;
+    // let count = 0;
+    let pointer = 0;
+    while (true) {
+        // count += 1;
+        // if (count > 1000) {
+        //   break;
+        // }
+        if (pointer >= code.length) {
+            switch (state) {
+                case types_1.ELexState.space:
+                    return acc;
+                case types_1.ELexState.token:
+                    acc.push(buffer);
+                    return acc;
+                    break;
+                case types_1.ELexState.escape:
+                    throw new Error("Should not be escape");
+                case types_1.ELexState.indent:
+                    return acc;
+                case types_1.ELexState.string:
+                    throw new Error("Should not be string");
+                default:
+                    console.log(state);
+                    throw new Error("Unkown state");
+            }
+        }
+        else {
+            let c = code[pointer];
+            pointer += 1;
+            switch (state) {
+                case types_1.ELexState.space:
+                    switch (c) {
+                        case " ":
+                            [acc, state, buffer] = [acc, types_1.ELexState.space, ""];
+                            break;
+                        case "\n":
+                            [acc, state, buffer] = [acc, types_1.ELexState.indent, ""];
+                            break;
+                        case "(":
+                            acc.push(types_1.ELexControl.open);
+                            [state, buffer] = [types_1.ELexState.space, ""];
+                            break;
+                        case ")":
+                            acc.push(types_1.ELexControl.close);
+                            [state, buffer] = [types_1.ELexState.space, ""];
+                            break;
+                        case '"':
+                            [acc, state, buffer] = [acc, types_1.ELexState.string, ""];
+                            break;
+                        default:
+                            [acc, state, buffer] = [acc, types_1.ELexState.token, c];
+                            break;
+                    }
+                    break;
+                case types_1.ELexState.token:
+                    switch (c) {
+                        case " ":
+                            acc.push(buffer);
+                            [state, buffer] = [types_1.ELexState.space, ""];
+                            break;
+                        case '"':
+                            acc.push(buffer);
+                            [state, buffer] = [types_1.ELexState.string, ""];
+                            break;
+                        case "\n":
+                            acc.push(buffer);
+                            [state, buffer] = [types_1.ELexState.indent, ""];
+                            break;
+                        case "(":
+                            acc.push(buffer, types_1.ELexControl.open);
+                            [state, buffer] = [types_1.ELexState.space, ""];
+                            break;
+                        case ")":
+                            acc.push(buffer, types_1.ELexControl.close);
+                            [state, buffer] = [types_1.ELexState.space, ""];
+                            break;
+                        default:
+                            [acc, state, buffer] = [acc, types_1.ELexState.token, `${buffer}${c}`];
+                            break;
+                    }
+                    break;
+                case types_1.ELexState.string:
+                    switch (c) {
+                        case '"':
+                            acc.push(buffer);
+                            [state, buffer] = [types_1.ELexState.space, ""];
+                            break;
+                        case "\\":
+                            [acc, state, buffer] = [acc, types_1.ELexState.escape, buffer];
+                            break;
+                        case "\n":
+                            throw new Error("Expected newline in string");
+                        default:
+                            [acc, state, buffer] = [acc, types_1.ELexState.string, `${buffer}${c}`];
+                            break;
+                    }
+                    break;
+                case types_1.ELexState.escape:
+                    switch (c) {
+                        case '"':
+                            [acc, state, buffer] = [acc, types_1.ELexState.string, `${buffer}"`];
+                            break;
+                        case "'":
+                            [acc, state, buffer] = [acc, types_1.ELexState.string, `${buffer}'`];
+                            break;
+                        case "t":
+                            [acc, state, buffer] = [acc, types_1.ELexState.string, `${buffer}\t`];
+                            break;
+                        case "n":
+                            [acc, state, buffer] = [acc, types_1.ELexState.string, `${buffer}\n`];
+                            break;
+                        case "r":
+                            [acc, state, buffer] = [acc, types_1.ELexState.string, `${buffer}\r`];
+                            break;
+                        case "\\":
+                            [acc, state, buffer] = [acc, types_1.ELexState.string, `${buffer}\\`];
+                            break;
+                        case "u":
+                            console.warn(`unicode escaping not supported yet, ${code.slice(pointer - 1, pointer + 10)}...`);
+                            [acc, state, buffer] = [acc, types_1.ELexState.string, `${buffer}\\u`];
+                            break;
+                        default:
+                            throw new Error(`Unknown \\${c} in escape`);
+                    }
+                    break;
+                case types_1.ELexState.indent:
+                    switch (c) {
+                        case " ":
+                            [acc, state, buffer] = [acc, types_1.ELexState.indent, `${buffer}${c}`];
+                            break;
+                        case "\n":
+                            [acc, state, buffer] = [acc, types_1.ELexState.indent, ""];
+                            break;
+                        case '"':
+                            acc.push(parseIndentation(buffer));
+                            [state, buffer] = [types_1.ELexState.string, ""];
+                            break;
+                        case "(":
+                            acc.push(parseIndentation(buffer), types_1.ELexControl.open);
+                            [state, buffer] = [types_1.ELexState.space, ""];
+                            break;
+                        default:
+                            acc.push(parseIndentation(buffer));
+                            [state, buffer] = [types_1.ELexState.token, c];
+                            break;
+                    }
+                    break;
+                default:
+                    console.log("Unknown state:", c);
+                    return acc;
+            }
+        }
+    }
+    return acc;
+};
+let repeat = (times, x) => {
+    let xs = [];
+    for (let i = 1; i <= times; i++) {
+        xs.push(x);
+    }
+    return xs;
+};
+let resolveIndentations = (initialTokens) => {
+    let acc = [];
+    let level = 0;
+    let tokens = initialTokens;
+    let pointer = 0;
+    while (true) {
+        if (pointer >= tokens.length) {
+            if ((0, tree_1.isEmpty)(acc)) {
+                return [];
+            }
+            else {
+                acc.unshift(types_1.ELexControl.open);
+                (0, tree_1.pushToList)(acc, repeat(level, types_1.ELexControl.close), [types_1.ELexControl.close]);
+                return acc;
+            }
+        }
+        else {
+            let cursor = tokens[pointer];
+            if (typeof cursor === "string") {
+                acc.push(cursor);
+                pointer += 1;
+                [level] = [level];
+            }
+            else if (cursor === types_1.ELexControl.open || cursor === types_1.ELexControl.close) {
+                acc.push(cursor);
+                pointer += 1;
+                [level] = [level];
+            }
+            else if (typeof cursor === "number") {
+                if (cursor > level) {
+                    let delta = cursor - level;
+                    (0, tree_1.pushToList)(acc, repeat(delta, types_1.ELexControl.open));
+                    pointer += 1;
+                    [level] = [cursor];
+                }
+                else if (cursor < level) {
+                    let delta = level - cursor;
+                    (0, tree_1.pushToList)(acc, repeat(delta, types_1.ELexControl.close), [types_1.ELexControl.close, types_1.ELexControl.open]);
+                    pointer += 1;
+                    [level] = [cursor];
+                }
+                else {
+                    if ((0, tree_1.isEmpty)(acc)) {
+                        acc = [];
+                    }
+                    else {
+                        acc.push(types_1.ELexControl.close, types_1.ELexControl.open);
+                    }
+                    pointer += 1;
+                    [level] = [level];
+                }
+            }
+            else {
+                console.log(cursor);
+                throw new Error("Unknown token");
+            }
+        }
+    }
+};
+let parse = (code) => {
+    let tokens = resolveIndentations(lex(code));
+    let pointer = 0;
+    let pullToken = () => {
+        let c = tokens[pointer];
+        pointer += 1;
+        return c;
+    };
+    return (0, tree_1.resolveComma)((0, tree_1.resolveDollar)(buildExprs(pullToken)));
+};
+exports.Q = parse;
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 8627:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.resolveDollar = exports.resolveComma = exports.isOdd = exports.isNumber = exports.isString = exports.notEmpty = exports.isEmpty = exports.isArray = exports.pushToList = void 0;
+let pushToList = (acc, xs, ys, zs) => {
+    let result = acc;
+    xs.forEach((x) => {
+        result.push(x);
+    });
+    if (ys != null) {
+        ys.forEach((y) => {
+            result.push(y);
+        });
+    }
+    if (zs != null) {
+        zs.forEach((y) => {
+            result.push(y);
+        });
+    }
+    return result;
+};
+exports.pushToList = pushToList;
+exports.isArray = Array.isArray;
+let isEmpty = (xs) => xs.length === 0;
+exports.isEmpty = isEmpty;
+let notEmpty = (xs) => xs.length > 0;
+exports.notEmpty = notEmpty;
+let isString = (x) => typeof x === "string";
+exports.isString = isString;
+let isNumber = (x) => typeof x === "number";
+exports.isNumber = isNumber;
+let isOdd = (x) => x % 2 === 1;
+exports.isOdd = isOdd;
+let resolveComma = (xs) => {
+    if ((0, exports.isEmpty)(xs)) {
+        return [];
+    }
+    else {
+        return commaHelper(xs);
+    }
+};
+exports.resolveComma = resolveComma;
+let commaHelper = (intialAfter) => {
+    let before = [];
+    let after = intialAfter;
+    let pointer = 0;
+    while (true) {
+        if (pointer >= after.length) {
+            return before;
+        }
+        let cursor = after[pointer];
+        if ((0, exports.isArray)(cursor) && (0, exports.notEmpty)(cursor)) {
+            let head = cursor[0];
+            if ((0, exports.isArray)(head)) {
+                before.push((0, exports.resolveComma)(cursor));
+                pointer += 1;
+            }
+            else if (head === ",") {
+                (0, exports.pushToList)(before, (0, exports.resolveComma)(cursor.slice(1)));
+                pointer += 1;
+            }
+            else {
+                before.push((0, exports.resolveComma)(cursor));
+                pointer += 1;
+            }
+        }
+        else {
+            before.push(cursor);
+            pointer += 1;
+        }
+    }
+};
+let resolveDollar = (xs) => {
+    if ((0, exports.isEmpty)(xs)) {
+        return [];
+    }
+    else {
+        return dollarHelper(xs);
+    }
+};
+exports.resolveDollar = resolveDollar;
+let dollarHelper = (initialAfter) => {
+    let before = [];
+    let after = initialAfter;
+    let pointer = 0;
+    while (true) {
+        if (pointer >= after.length) {
+            return before;
+        }
+        else {
+            let cursor = after[pointer];
+            if ((0, exports.isArray)(cursor)) {
+                before.push((0, exports.resolveDollar)(cursor));
+                pointer += 1;
+            }
+            else if (cursor === "$") {
+                before.push((0, exports.resolveDollar)(after.slice(pointer + 1))); // pick items after pointer for $
+                pointer = after.length; // trying to exit
+            }
+            else {
+                before.push(cursor);
+                pointer += 1;
+            }
+        }
+    }
+};
+//# sourceMappingURL=tree.js.map
+
+/***/ }),
+
+/***/ 6809:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ELexControl = exports.ELexState = void 0;
+var ELexState;
+(function (ELexState) {
+    ELexState[ELexState["space"] = 0] = "space";
+    ELexState[ELexState["token"] = 1] = "token";
+    ELexState[ELexState["escape"] = 2] = "escape";
+    ELexState[ELexState["indent"] = 3] = "indent";
+    ELexState[ELexState["string"] = 4] = "string";
+})(ELexState = exports.ELexState || (exports.ELexState = {}));
+var ELexControl;
+(function (ELexControl) {
+    ELexControl[ELexControl["open"] = -1000] = "open";
+    ELexControl[ELexControl["close"] = -2000] = "close";
+})(ELexControl = exports.ELexControl || (exports.ELexControl = {}));
+//# sourceMappingURL=types.js.map
+
+/***/ }),
+
+/***/ 5208:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isALetter = exports.isADigit = void 0;
+function isADigit(c) {
+    let n = c.charCodeAt(0);
+    // ascii table https://tool.oschina.net/commons?type=4
+    return n >= 48 && n <= 57;
+}
+exports.isADigit = isADigit;
+function isALetter(c) {
+    let n = c.charCodeAt(0);
+    if (n >= 65 && n <= 90) {
+        return true;
+    }
+    if (n >= 97 && n <= 122) {
+        return true;
+    }
+    return false;
+}
+exports.isALetter = isALetter;
+//# sourceMappingURL=str-util.js.map
+
+/***/ }),
+
+/***/ 8379:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isSimpleExpr = exports.WriterNodeKind = void 0;
+var WriterNodeKind;
+(function (WriterNodeKind) {
+    WriterNodeKind["writerKindNil"] = "nil";
+    WriterNodeKind["writerKindLeaf"] = "leaf";
+    WriterNodeKind["writerKindSimpleExpr"] = "simple";
+    WriterNodeKind["writerKindBoxedExpr"] = "boxed";
+    WriterNodeKind["writerKindExpr"] = "expr";
+})(WriterNodeKind || (exports.WriterNodeKind = WriterNodeKind = {}));
+function isSimpleExpr(xs) {
+    if (Array.isArray(xs)) {
+        for (let idx = 0; idx < xs.length; idx++) {
+            let x = xs[idx];
+            if (typeof x !== "string") {
+                return false;
+            }
+        }
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+exports.isSimpleExpr = isSimpleExpr;
+//# sourceMappingURL=types.js.map
+
+/***/ }),
+
+/***/ 3174:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+var __webpack_unused_export__;
+
+__webpack_unused_export__ = ({ value: true });
+exports.N = void 0;
+const types_1 = __nccwpck_require__(8379);
+const str_util_1 = __nccwpck_require__(5208);
+let allowedChars = "-~_@#$&%!?^*=+|\\/<>[]{}.,:;'";
+function isBoxed(xs) {
+    if (Array.isArray(xs)) {
+        for (let idx = 0; idx < xs.length; idx++) {
+            let x = xs[idx];
+            if (typeof x === "string") {
+                return false;
+            }
+        }
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+function isSimpleChar(x) {
+    return (0, str_util_1.isALetter)(x) || (0, str_util_1.isADigit)(x);
+}
+function isCharAllowed(x) {
+    if (isSimpleChar(x)) {
+        return true;
+    }
+    if (allowedChars.includes(x)) {
+        return true;
+    }
+    return false;
+}
+let charClose = ")";
+let charOpen = "(";
+let charSpace = " ";
+function generateLeaf(xs) {
+    if (Array.isArray(xs)) {
+        if (xs.length === 0) {
+            return "()";
+        }
+        else {
+            throw new Error("Unexpect list in leaf");
+        }
+    }
+    else {
+        let allAllowed = true;
+        for (let idx = 0; idx < xs.length; idx++) {
+            let x = xs[idx];
+            if (!isCharAllowed(x)) {
+                allAllowed = false;
+                break;
+            }
+        }
+        if (allAllowed) {
+            return xs;
+        }
+        else {
+            return JSON.stringify(xs);
+        }
+    }
+}
+function generateInlineExpr(xs) {
+    let result = charOpen;
+    if (Array.isArray(xs)) {
+        for (let idx = 0; idx < xs.length; idx++) {
+            let x = xs[idx];
+            if (idx > 0) {
+                result += charSpace;
+            }
+            let childForm = typeof x === "string" ? generateLeaf(x) : generateInlineExpr(x);
+            result += childForm;
+        }
+    }
+    else {
+        throw new Error(`Unexpect token in gen list: ${xs}`);
+    }
+    return result + charClose;
+}
+function renderSpaces(n) {
+    let result = "";
+    for (let i = 0; i < n; i++) {
+        result += "  ";
+    }
+    return result;
+}
+function renderNewline(n) {
+    return "\n" + renderSpaces(n);
+}
+function getNodeKind(cursor) {
+    if (typeof cursor === "string") {
+        return types_1.WriterNodeKind.writerKindLeaf;
+    }
+    else {
+        if (cursor.length === 0) {
+            return types_1.WriterNodeKind.writerKindLeaf;
+        }
+        else if ((0, types_1.isSimpleExpr)(cursor)) {
+            return types_1.WriterNodeKind.writerKindSimpleExpr;
+        }
+        else if (isBoxed(cursor)) {
+            return types_1.WriterNodeKind.writerKindBoxedExpr;
+        }
+        else {
+            return types_1.WriterNodeKind.writerKindExpr;
+        }
+    }
+}
+function generateTree(xs, insistHead, options, baseLevel, inTail) {
+    let prevKind = types_1.WriterNodeKind.writerKindNil;
+    let bendedSize = 0;
+    let level = baseLevel;
+    let result = "";
+    if (typeof xs === "string") {
+        throw new Error("expects a list");
+    }
+    for (let idx = 0; idx < xs.length; idx++) {
+        let cursor = xs[idx];
+        let kind = getNodeKind(cursor);
+        let nextLevel = level + 1;
+        let childInsistHead = prevKind === types_1.WriterNodeKind.writerKindBoxedExpr || prevKind === types_1.WriterNodeKind.writerKindExpr;
+        let atTail = idx != 0 &&
+            !inTail &&
+            prevKind === types_1.WriterNodeKind.writerKindLeaf &&
+            idx === xs.length - 1 &&
+            Array.isArray(cursor);
+        // console.log("\nloop", prevKind, kind);
+        // console.log("cursor", cursor);
+        // console.log(JSON.stringify(result));
+        let child = ""; // mutable
+        if (typeof cursor === "string") {
+            child += generateLeaf(cursor);
+        }
+        else if (atTail) {
+            if (typeof cursor === "string") {
+                throw new Error("Expected list");
+            }
+            if (cursor.length === 0) {
+                child += "$";
+            }
+            else {
+                child += "$ ";
+                child += generateTree(cursor, false, options, level, atTail);
+            }
+        }
+        else if (idx === 0 && insistHead) {
+            child += generateInlineExpr(cursor);
+        }
+        else if (kind === types_1.WriterNodeKind.writerKindLeaf) {
+            if (idx === 0) {
+                child += renderNewline(level);
+                child += generateLeaf(cursor);
+            }
+            else {
+                child += generateLeaf(cursor);
+            }
+        }
+        else if (kind === types_1.WriterNodeKind.writerKindSimpleExpr) {
+            if (prevKind === types_1.WriterNodeKind.writerKindLeaf) {
+                child += generateInlineExpr(cursor);
+            }
+            else if (options.useInline && prevKind === types_1.WriterNodeKind.writerKindSimpleExpr) {
+                child += " ";
+                child += generateInlineExpr(cursor);
+            }
+            else {
+                child += renderNewline(nextLevel);
+                child += generateTree(cursor, childInsistHead, options, nextLevel, false);
+            }
+        }
+        else if (kind === types_1.WriterNodeKind.writerKindExpr) {
+            let content = generateTree(cursor, childInsistHead, options, nextLevel, false);
+            if (content.startsWith("\n")) {
+                child += content;
+            }
+            else {
+                child += renderNewline(nextLevel);
+                child += content;
+            }
+        }
+        else if (kind === types_1.WriterNodeKind.writerKindBoxedExpr) {
+            let content = generateTree(cursor, childInsistHead, options, nextLevel, false);
+            if (prevKind === types_1.WriterNodeKind.writerKindNil ||
+                prevKind === types_1.WriterNodeKind.writerKindLeaf ||
+                prevKind === types_1.WriterNodeKind.writerKindSimpleExpr) {
+                child += content;
+            }
+            else {
+                child += renderNewline(nextLevel);
+                child += content;
+            }
+        }
+        else {
+            throw new Error("Unexpected condition");
+        }
+        let bended = kind === types_1.WriterNodeKind.writerKindLeaf &&
+            (prevKind === types_1.WriterNodeKind.writerKindBoxedExpr || prevKind === types_1.WriterNodeKind.writerKindExpr);
+        if (atTail) {
+            result += " ";
+            result += child;
+        }
+        else if (prevKind === types_1.WriterNodeKind.writerKindLeaf && kind === types_1.WriterNodeKind.writerKindLeaf) {
+            result += " ";
+            result += child;
+        }
+        else if (prevKind === types_1.WriterNodeKind.writerKindLeaf && kind === types_1.WriterNodeKind.writerKindSimpleExpr) {
+            result += " ";
+            result += child;
+        }
+        else if (prevKind === types_1.WriterNodeKind.writerKindSimpleExpr && kind === types_1.WriterNodeKind.writerKindLeaf) {
+            result += " ";
+            result += child;
+        }
+        else if (bended) {
+            result += renderNewline(nextLevel);
+            result += ", ";
+            result += child;
+        }
+        else {
+            result += child;
+        }
+        // update writer states
+        if (kind === types_1.WriterNodeKind.writerKindSimpleExpr) {
+            if (idx === 0 && insistHead) {
+                prevKind = types_1.WriterNodeKind.writerKindSimpleExpr;
+            }
+            else if (options.useInline) {
+                if (prevKind === types_1.WriterNodeKind.writerKindLeaf || prevKind === types_1.WriterNodeKind.writerKindSimpleExpr) {
+                    prevKind = types_1.WriterNodeKind.writerKindSimpleExpr;
+                }
+                else {
+                    prevKind = types_1.WriterNodeKind.writerKindExpr;
+                }
+            }
+            else {
+                if (prevKind === types_1.WriterNodeKind.writerKindLeaf) {
+                    prevKind = types_1.WriterNodeKind.writerKindSimpleExpr;
+                }
+                else {
+                    prevKind = types_1.WriterNodeKind.writerKindExpr;
+                }
+            }
+        }
+        else {
+            prevKind = kind;
+        }
+        if (bended) {
+            bendedSize += 1;
+            level += 1;
+        }
+        // console.log("chunk", JSON.stringify(chunk));
+        // console.log("And result", JSON.stringify(result));
+    }
+    return result;
+}
+function generateStatements(xs, options) {
+    if (typeof xs === "string") {
+        throw new Error("Unexpected item");
+    }
+    return xs
+        .map((x) => {
+        return "\n" + generateTree(x, true, options, 0, false) + "\n";
+    })
+        .join("");
+}
+function writeCirruCode(xs, options = { useInline: false }) {
+    return generateStatements(xs, options);
+}
+exports.N = writeCirruCode;
+//# sourceMappingURL=writer.js.map
 
 /***/ }),
 
@@ -30471,6 +31279,6919 @@ function parseParams (str) {
 module.exports = parseParams
 
 
+/***/ }),
+
+/***/ 1618:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+"use strict";
+// ESM COMPAT FLAG
+__nccwpck_require__.r(__webpack_exports__);
+
+// EXPORTS
+__nccwpck_require__.d(__webpack_exports__, {
+  "CalcitCirruQuote": () => (/* reexport */ CalcitCirruQuote),
+  "CalcitList": () => (/* reexport */ CalcitList),
+  "CalcitMap": () => (/* reexport */ CalcitMap),
+  "CalcitRecord": () => (/* reexport */ CalcitRecord),
+  "CalcitRecur": () => (/* reexport */ CalcitRecur),
+  "CalcitRef": () => (/* reexport */ CalcitRef),
+  "CalcitSet": () => (/* reexport */ CalcitSet),
+  "CalcitSliceList": () => (/* reexport */ CalcitSliceList),
+  "CalcitSliceMap": () => (/* reexport */ CalcitSliceMap),
+  "CalcitSymbol": () => (/* reexport */ CalcitSymbol),
+  "CalcitTag": () => (/* reexport */ CalcitTag),
+  "CalcitTuple": () => (/* reexport */ CalcitTuple),
+  "_$L_": () => (/* binding */ _$L_),
+  "_$n__": () => (/* binding */ _$n__),
+  "_$n__$M_": () => (/* binding */ _$n__$M_),
+  "_$n__$e_": () => (/* reexport */ _$n__$e_),
+  "_$n__$s_": () => (/* binding */ _$n__$s_),
+  "_$n__ADD_": () => (/* binding */ _$n__ADD_),
+  "_$n__GT_": () => (/* binding */ _$n__GT_),
+  "_$n__LT_": () => (/* binding */ _$n__LT_),
+  "_$n__PCT__$M_": () => (/* reexport */ _$n__PCT__$M_),
+  "_$n__SLSH_": () => (/* binding */ _$n__SLSH_),
+  "_$n_atom_$o_deref": () => (/* binding */ _$n_atom_$o_deref),
+  "_$n_buffer": () => (/* binding */ _$n_buffer),
+  "_$n_cirru_nth": () => (/* binding */ _$n_cirru_nth),
+  "_$n_cirru_quote_$o_to_list": () => (/* binding */ _$n_cirru_quote_$o_to_list),
+  "_$n_cirru_type": () => (/* binding */ _$n_cirru_type),
+  "_$n_compare": () => (/* reexport */ _$n_compare),
+  "_$n_difference": () => (/* binding */ _$n_difference),
+  "_$n_display_stack": () => (/* binding */ _$n_display_stack),
+  "_$n_exclude": () => (/* binding */ _$n_exclude),
+  "_$n_get_calcit_backend": () => (/* binding */ _$n_get_calcit_backend),
+  "_$n_get_calcit_running_mode": () => (/* binding */ _$n_get_calcit_running_mode),
+  "_$n_get_os": () => (/* binding */ _$n_get_os),
+  "_$n_hash": () => (/* binding */ _$n_hash),
+  "_$n_include": () => (/* binding */ _$n_include),
+  "_$n_js_object": () => (/* binding */ _$n_js_object),
+  "_$n_list_$o_assoc": () => (/* binding */ _$n_list_$o_assoc),
+  "_$n_list_$o_assoc_after": () => (/* binding */ _$n_list_$o_assoc_after),
+  "_$n_list_$o_assoc_before": () => (/* binding */ _$n_list_$o_assoc_before),
+  "_$n_list_$o_concat": () => (/* binding */ _$n_list_$o_concat),
+  "_$n_list_$o_contains_$q_": () => (/* binding */ _$n_list_$o_contains_$q_),
+  "_$n_list_$o_count": () => (/* binding */ _$n_list_$o_count),
+  "_$n_list_$o_dissoc": () => (/* binding */ _$n_list_$o_dissoc),
+  "_$n_list_$o_distinct": () => (/* binding */ _$n_list_$o_distinct),
+  "_$n_list_$o_empty_$q_": () => (/* binding */ _$n_list_$o_empty_$q_),
+  "_$n_list_$o_first": () => (/* binding */ _$n_list_$o_first),
+  "_$n_list_$o_includes_$q_": () => (/* binding */ _$n_list_$o_includes_$q_),
+  "_$n_list_$o_nth": () => (/* binding */ _$n_list_$o_nth),
+  "_$n_list_$o_rest": () => (/* binding */ _$n_list_$o_rest),
+  "_$n_list_$o_reverse": () => (/* binding */ _$n_list_$o_reverse),
+  "_$n_list_$o_slice": () => (/* binding */ _$n_list_$o_slice),
+  "_$n_list_$o_to_set": () => (/* binding */ _$n_list_$o_to_set),
+  "_$n_map_$o_assoc": () => (/* binding */ _$n_map_$o_assoc),
+  "_$n_map_$o_common_keys": () => (/* binding */ _$n_map_$o_common_keys),
+  "_$n_map_$o_contains_$q_": () => (/* binding */ _$n_map_$o_contains_$q_),
+  "_$n_map_$o_count": () => (/* binding */ _$n_map_$o_count),
+  "_$n_map_$o_destruct": () => (/* binding */ _$n_map_$o_destruct),
+  "_$n_map_$o_diff_keys": () => (/* binding */ _$n_map_$o_diff_keys),
+  "_$n_map_$o_diff_new": () => (/* binding */ _$n_map_$o_diff_new),
+  "_$n_map_$o_dissoc": () => (/* binding */ _$n_map_$o_dissoc),
+  "_$n_map_$o_empty_$q_": () => (/* binding */ _$n_map_$o_empty_$q_),
+  "_$n_map_$o_get": () => (/* reexport */ _$n_map_$o_get),
+  "_$n_map_$o_includes_$q_": () => (/* binding */ _$n_map_$o_includes_$q_),
+  "_$n_map_$o_to_list": () => (/* binding */ _$n_map_$o_to_list),
+  "_$n_merge": () => (/* binding */ _$n_merge),
+  "_$n_merge_non_nil": () => (/* binding */ _$n_merge_non_nil),
+  "_$n_number_$o_display_by": () => (/* binding */ _$n_number_$o_display_by),
+  "_$n_number_$o_format": () => (/* binding */ _$n_number_$o_format),
+  "_$n_number_$o_fract": () => (/* binding */ _$n_number_$o_fract),
+  "_$n_number_$o_rem": () => (/* binding */ _$n_number_$o_rem),
+  "_$n_record_$o_assoc": () => (/* binding */ _$n_record_$o_assoc),
+  "_$n_record_$o_class": () => (/* binding */ _$n_record_$o_class),
+  "_$n_record_$o_contains_$q_": () => (/* binding */ _$n_record_$o_contains_$q_),
+  "_$n_record_$o_count": () => (/* binding */ _$n_record_$o_count),
+  "_$n_record_$o_extend_as": () => (/* reexport */ _$n_record_$o_extend_as),
+  "_$n_record_$o_from_map": () => (/* reexport */ _$n_record_$o_from_map),
+  "_$n_record_$o_get": () => (/* binding */ _$n_record_$o_get),
+  "_$n_record_$o_get_name": () => (/* reexport */ _$n_record_$o_get_name),
+  "_$n_record_$o_matches_$q_": () => (/* reexport */ _$n_record_$o_matches_$q_),
+  "_$n_record_$o_to_map": () => (/* reexport */ _$n_record_$o_to_map),
+  "_$n_record_$o_with": () => (/* reexport */ _$n_record_$o_with),
+  "_$n_record_$o_with_class": () => (/* binding */ _$n_record_$o_with_class),
+  "_$n_reset_gensym_index_$x_": () => (/* binding */ _$n_reset_gensym_index_$x_),
+  "_$n_set_$o_count": () => (/* binding */ _$n_set_$o_count),
+  "_$n_set_$o_destruct": () => (/* binding */ _$n_set_$o_destruct),
+  "_$n_set_$o_empty_$q_": () => (/* binding */ _$n_set_$o_empty_$q_),
+  "_$n_set_$o_includes_$q_": () => (/* binding */ _$n_set_$o_includes_$q_),
+  "_$n_set_$o_intersection": () => (/* binding */ _$n_set_$o_intersection),
+  "_$n_set_$o_to_list": () => (/* binding */ _$n_set_$o_to_list),
+  "_$n_str": () => (/* binding */ _$n_str),
+  "_$n_str_$o_compare": () => (/* binding */ _$n_str_$o_compare),
+  "_$n_str_$o_concat": () => (/* binding */ _$n_str_$o_concat),
+  "_$n_str_$o_contains_$q_": () => (/* binding */ _$n_str_$o_contains_$q_),
+  "_$n_str_$o_count": () => (/* binding */ _$n_str_$o_count),
+  "_$n_str_$o_empty_$q_": () => (/* binding */ _$n_str_$o_empty_$q_),
+  "_$n_str_$o_escape": () => (/* binding */ _$n_str_$o_escape),
+  "_$n_str_$o_find_index": () => (/* binding */ _$n_str_$o_find_index),
+  "_$n_str_$o_first": () => (/* binding */ _$n_str_$o_first),
+  "_$n_str_$o_includes_$q_": () => (/* binding */ _$n_str_$o_includes_$q_),
+  "_$n_str_$o_nth": () => (/* binding */ _$n_str_$o_nth),
+  "_$n_str_$o_pad_left": () => (/* binding */ _$n_str_$o_pad_left),
+  "_$n_str_$o_pad_right": () => (/* binding */ _$n_str_$o_pad_right),
+  "_$n_str_$o_replace": () => (/* binding */ _$n_str_$o_replace),
+  "_$n_str_$o_rest": () => (/* binding */ _$n_str_$o_rest),
+  "_$n_str_$o_slice": () => (/* binding */ _$n_str_$o_slice),
+  "_$n_tuple_$o_assoc": () => (/* binding */ _$n_tuple_$o_assoc),
+  "_$n_tuple_$o_class": () => (/* binding */ _$n_tuple_$o_class),
+  "_$n_tuple_$o_count": () => (/* binding */ _$n_tuple_$o_count),
+  "_$n_tuple_$o_nth": () => (/* binding */ _$n_tuple_$o_nth),
+  "_$n_tuple_$o_params": () => (/* binding */ _$n_tuple_$o_params),
+  "_$n_tuple_$o_with_class": () => (/* binding */ _$n_tuple_$o_with_class),
+  "_$n_union": () => (/* binding */ _$n_union),
+  "_$o__$o_": () => (/* binding */ _$o__$o_),
+  "_PCT__$o__$o_": () => (/* binding */ _PCT__$o__$o_),
+  "_SHA__$M_": () => (/* binding */ _SHA__$M_),
+  "_SQUO_": () => (/* binding */ _SQUO_),
+  "_calcit_args_mismatch": () => (/* binding */ _calcit_args_mismatch),
+  "add_watch": () => (/* binding */ add_watch),
+  "aget": () => (/* binding */ aget),
+  "append": () => (/* binding */ calcit_procs_append),
+  "arrayToList": () => (/* binding */ arrayToList),
+  "aset": () => (/* binding */ aset),
+  "atom": () => (/* binding */ atom),
+  "bit_and": () => (/* binding */ bit_and),
+  "bit_not": () => (/* binding */ bit_not),
+  "bit_or": () => (/* binding */ bit_or),
+  "bit_shl": () => (/* binding */ bit_shl),
+  "bit_shr": () => (/* binding */ bit_shr),
+  "bit_xor": () => (/* binding */ bit_xor),
+  "blank_$q_": () => (/* binding */ blank_$q_),
+  "bool_$q_": () => (/* binding */ bool_$q_),
+  "buffer_$q_": () => (/* binding */ buffer_$q_),
+  "butlast": () => (/* binding */ calcit_procs_butlast),
+  "calcit_package_json": () => (/* binding */ calcit_package_json),
+  "calcit_version": () => (/* binding */ calcit_version),
+  "castTag": () => (/* reexport */ castTag),
+  "ceil": () => (/* binding */ ceil),
+  "char_from_code": () => (/* binding */ char_from_code),
+  "cirru_deep_equal": () => (/* reexport */ cirru_deep_equal),
+  "cos": () => (/* binding */ cos),
+  "cpu_time": () => (/* binding */ cpu_time),
+  "defatom": () => (/* binding */ defatom),
+  "disable_list_structure_check_$x_": () => (/* reexport */ disable_list_structure_check_$x_),
+  "ends_with_$q_": () => (/* binding */ ends_with_$q_),
+  "extract_cirru_edn": () => (/* reexport */ extract_cirru_edn),
+  "fieldsEqual": () => (/* reexport */ fieldsEqual),
+  "findInFields": () => (/* reexport */ findInFields),
+  "floor": () => (/* binding */ floor),
+  "fn_$q_": () => (/* binding */ fn_$q_),
+  "foldl": () => (/* reexport */ foldl),
+  "foldl_shortcut": () => (/* reexport */ foldl_shortcut),
+  "foldr_shortcut": () => (/* reexport */ foldr_shortcut),
+  "format_cirru": () => (/* reexport */ format_cirru),
+  "format_cirru_edn": () => (/* reexport */ format_cirru_edn),
+  "format_ternary_tree": () => (/* binding */ format_ternary_tree),
+  "format_to_cirru": () => (/* binding */ format_to_cirru),
+  "format_to_lisp": () => (/* binding */ format_to_lisp),
+  "generate_id_$x_": () => (/* binding */ generate_id_$x_),
+  "gensym": () => (/* binding */ gensym),
+  "getStringName": () => (/* reexport */ getStringName),
+  "get_char_code": () => (/* binding */ get_char_code),
+  "get_env": () => (/* binding */ get_env),
+  "hashFunction": () => (/* reexport */ hashFunction),
+  "identical_$q_": () => (/* binding */ identical_$q_),
+  "initCrTernary": () => (/* binding */ initCrTernary),
+  "invoke_method": () => (/* binding */ invoke_method),
+  "invoke_method_closure": () => (/* binding */ invoke_method_closure),
+  "isLiteral": () => (/* reexport */ isLiteral),
+  "isNestedCalcitData": () => (/* reexport */ isNestedCalcitData),
+  "js_array": () => (/* binding */ js_array),
+  "js_delete": () => (/* binding */ js_delete),
+  "js_get": () => (/* binding */ js_get),
+  "js_set": () => (/* binding */ js_set),
+  "last": () => (/* binding */ calcit_procs_last),
+  "listToArray": () => (/* binding */ listToArray),
+  "list_$q_": () => (/* binding */ list_$q_),
+  "load_console_formatter_$x_": () => (/* reexport */ load_console_formatter_$x_),
+  "macroexpand": () => (/* binding */ macroexpand),
+  "macroexpand_all": () => (/* binding */ macroexpand_all),
+  "map_$q_": () => (/* binding */ map_$q_),
+  "newTag": () => (/* reexport */ newTag),
+  "new_class_record": () => (/* reexport */ new_class_record),
+  "new_record": () => (/* reexport */ new_record),
+  "nil_$q_": () => (/* binding */ nil_$q_),
+  "not": () => (/* binding */ not),
+  "number_$q_": () => (/* binding */ number_$q_),
+  "overwriteMapComparator": () => (/* reexport */ overwriteMapComparator),
+  "overwriteSetComparator": () => (/* reexport */ overwriteSetComparator),
+  "parse_cirru": () => (/* binding */ parse_cirru),
+  "parse_cirru_edn": () => (/* binding */ parse_cirru_edn),
+  "parse_cirru_list": () => (/* binding */ parse_cirru_list),
+  "parse_float": () => (/* binding */ parse_float),
+  "peekDefatom": () => (/* binding */ peekDefatom),
+  "pow": () => (/* binding */ pow),
+  "prepend": () => (/* binding */ calcit_procs_prepend),
+  "print": () => (/* binding */ print),
+  "printable": () => (/* binding */ printable),
+  "quit_$x_": () => (/* binding */ quit_$x_),
+  "raise": () => (/* binding */ raise),
+  "range": () => (/* binding */ range),
+  "read_file": () => (/* binding */ read_file),
+  "record_$q_": () => (/* binding */ record_$q_),
+  "recur": () => (/* binding */ recur),
+  "reduce": () => (/* binding */ reduce),
+  "ref_$q_": () => (/* binding */ ref_$q_),
+  "refsRegistry": () => (/* reexport */ refsRegistry),
+  "register_calcit_builtin_classes": () => (/* binding */ register_calcit_builtin_classes),
+  "remove_watch": () => (/* binding */ remove_watch),
+  "reset_$x_": () => (/* binding */ reset_$x_),
+  "round": () => (/* binding */ round),
+  "round_$q_": () => (/* binding */ round_$q_),
+  "set_$q_": () => (/* binding */ set_$q_),
+  "sin": () => (/* binding */ sin),
+  "sort": () => (/* binding */ sort),
+  "split": () => (/* binding */ split),
+  "split_lines": () => (/* binding */ split_lines),
+  "sqrt": () => (/* binding */ sqrt),
+  "starts_with_$q_": () => (/* binding */ starts_with_$q_),
+  "string_$q_": () => (/* binding */ string_$q_),
+  "tag_$q_": () => (/* binding */ tag_$q_),
+  "timeout_call": () => (/* binding */ timeout_call),
+  "tipNestedCalcitData": () => (/* reexport */ tipNestedCalcitData),
+  "toString": () => (/* reexport */ calcit_data_toString),
+  "to_calcit_data": () => (/* reexport */ to_calcit_data),
+  "to_cirru_edn": () => (/* reexport */ to_cirru_edn),
+  "to_js_data": () => (/* reexport */ to_js_data),
+  "to_lispy_string": () => (/* binding */ to_lispy_string),
+  "to_pairs": () => (/* binding */ to_pairs),
+  "transform_code_to_cirru": () => (/* binding */ transform_code_to_cirru),
+  "trim": () => (/* binding */ trim),
+  "tuple_$q_": () => (/* binding */ tuple_$q_),
+  "turn_string": () => (/* binding */ turn_string),
+  "turn_symbol": () => (/* binding */ turn_symbol),
+  "turn_tag": () => (/* binding */ turn_tag),
+  "type_of": () => (/* binding */ type_of),
+  "write_file": () => (/* binding */ write_file)
+});
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/package.json
+const package_namespaceObject = JSON.parse('{"name":"@calcit/procs","version":"0.9.4","main":"./lib/calcit.procs.mjs","devDependencies":{"@types/node":"^22.1.0","typescript":"^5.5.4"},"scripts":{"compile":"rm -rfv lib/* && tsc","procs-link":"ln -s ../../ node_modules/@calcit/procs","cp-mac":"cargo build --release && rm -rfv builds/* && node scripts/cp-version.js && scp builds/* rsync-user@calcit-lang.org:/web-assets/repo/calcit-lang/binaries/macos/","eval":"cargo run --bin cr -- eval","check-all":"yarn compile && yarn try-rs && yarn try-js && yarn try-ir","try-rs":"cargo run --bin cr -- calcit/test.cirru -1","try-js-brk":"cargo run --bin cr -- calcit/test.cirru -1 js && node --inspect-brk js-out/main.mjs","try-js":"cargo run --bin cr -- calcit/test.cirru -1 js && node js-out/main.mjs","try-ir":"cargo run --bin cr -- calcit/test.cirru -1 js"},"repository":{"type":"git","url":"https://github.com/calcit-lang/calcit"},"dependencies":{"@calcit/ternary-tree":"0.0.24","@cirru/parser.ts":"^0.0.6","@cirru/writer.ts":"^0.1.5"}}');
+// EXTERNAL MODULE: ./node_modules/@cirru/parser.ts/lib/index.js
+var lib = __nccwpck_require__(1910);
+// EXTERNAL MODULE: ./node_modules/@cirru/writer.ts/lib/writer.js
+var writer = __nccwpck_require__(3174);
+;// CONCATENATED MODULE: ./node_modules/@calcit/ternary-tree/lib/types.mjs
+var types_TernaryTreeKind;
+(function (TernaryTreeKind) {
+    TernaryTreeKind[TernaryTreeKind["ternaryTreeBranch"] = 0] = "ternaryTreeBranch";
+    TernaryTreeKind[TernaryTreeKind["ternaryTreeLeaf"] = 1] = "ternaryTreeLeaf";
+})(types_TernaryTreeKind || (types_TernaryTreeKind = {}));
+let valueHash = (x) => {
+    if (typeof x === "number") {
+        // console.log("hash for x:", x, "\t", result);
+        return x;
+    }
+    else if (typeof x === "string") {
+        let h = 0;
+        // https://gist.github.com/hyamamoto/fd435505d29ebfa3d9716fd2be8d42f0#gistcomment-2775538
+        for (var i = 0; i < x.length; i++) {
+            h = Math.imul(31, h) + (x[i].charCodeAt(0) | 0);
+        }
+        // console.log("hash for x:", x, "\t", result);
+        return h;
+    }
+    throw new Error("Hash solution not provided for this type(other than number and string)");
+};
+/** default hash function only handles number and string, need customization */
+let types_hashGenerator = valueHash;
+/** allow customizing hash function from outside */
+let overwriteHashGenerator = (f) => {
+    types_hashGenerator = f;
+};
+let mergeValueHash = (base, x) => {
+    if (typeof x === "number") {
+        return Math.imul(31, base) + x;
+    }
+    else if (typeof x === "string") {
+        let h = base;
+        // https://gist.github.com/hyamamoto/fd435505d29ebfa3d9716fd2be8d42f0#gistcomment-2775538
+        for (var i = 0; i < x.length; i++) {
+            h = Math.imul(31, h) + (x[i].charCodeAt(0) | 0);
+        }
+        return h;
+    }
+    throw new Error("Hash solution not provided for this type(other than number and string)");
+};
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/ternary-tree/lib/utils.mjs
+/** by default, it compares by reference
+ * supposed to be overwritten by user
+ */
+let utils_dataEqual = (x, y) => {
+    return x === y;
+};
+let overwriteComparator = (f) => {
+    utils_dataEqual = f;
+};
+let roughIntPow = (x, times) => {
+    if (times < 1) {
+        return x;
+    }
+    let result = 1;
+    for (let idx = 0; idx < times; idx++) {
+        result = result * x;
+    }
+    return result;
+};
+let divideTernarySizes = (size) => {
+    if (size < 0) {
+        throw new Error("Unexpected negative size");
+    }
+    let extra = size % 3;
+    let groupSize = Math.floor(size / 3);
+    var leftSize = groupSize;
+    var middleSize = groupSize;
+    var rightSize = groupSize;
+    switch (extra) {
+        case 0:
+            break;
+        case 1:
+            middleSize = middleSize + 1;
+            break;
+        case 2:
+            leftSize = leftSize + 1;
+            rightSize = rightSize + 1;
+            break;
+        default:
+            throw new Error(`Unexpected mod result ${extra}`);
+    }
+    return { left: leftSize, middle: middleSize, right: rightSize };
+};
+function shallowCloneArray(xs) {
+    let ys = new Array(xs.length);
+    for (let i = 0; i < xs.length; i++) {
+        ys[i] = xs[i];
+    }
+    return ys;
+}
+let utils_cmp = (x, y) => {
+    if (x < y) {
+        return -1;
+    }
+    if (x > y) {
+        return 1;
+    }
+    return 0;
+};
+// https://stackoverflow.com/a/25456134/883571
+let deepEqual = function (x, y) {
+    if (x === y) {
+        return true;
+    }
+    else if (typeof x === "object" && x != null && typeof y === "object" && y != null) {
+        if (Object.keys(x).length != Object.keys(y).length)
+            return false;
+        for (var prop in x) {
+            if (y.hasOwnProperty(prop)) {
+                if (!deepEqual(x[prop], y[prop]))
+                    return false;
+            }
+            else
+                return false;
+        }
+        return true;
+    }
+    else
+        return false;
+};
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/ternary-tree/lib/map.mjs
+
+
+let emptyBranch = null;
+let nilResult = null;
+function getMax(tree) {
+    if (tree == null) {
+        throw new Error("Cannot find max hash of nil");
+    }
+    switch (tree.kind) {
+        case types_TernaryTreeKind.ternaryTreeLeaf:
+            return tree.hash;
+        case types_TernaryTreeKind.ternaryTreeBranch:
+            return tree.maxHash;
+        default:
+            throw new Error("Unknown");
+    }
+}
+function getMin(tree) {
+    if (tree == null) {
+        throw new Error("Cannot find min hash of nil");
+    }
+    switch (tree.kind) {
+        case types_TernaryTreeKind.ternaryTreeLeaf:
+            return tree.hash;
+        case types_TernaryTreeKind.ternaryTreeBranch:
+            return tree.minHash;
+        default:
+            throw new Error("Unknown");
+    }
+}
+function getMapDepth(tree) {
+    // console.log( "calling...", tree)
+    if (tree == null) {
+        return 0;
+    }
+    switch (tree.kind) {
+        case types_TernaryTreeKind.ternaryTreeLeaf:
+            return 1;
+        case types_TernaryTreeKind.ternaryTreeBranch:
+            return Math.max(getMapDepth(tree.left), getMapDepth(tree.middle), getMapDepth(tree.right)) + 1;
+        default:
+            throw new Error("Unknown");
+    }
+}
+function createLeaf(k, v) {
+    let result = {
+        kind: types_TernaryTreeKind.ternaryTreeLeaf,
+        hash: types_hashGenerator(k),
+        elements: [[k, v]],
+    };
+    return result;
+}
+function createLeafFromHashEntry(item) {
+    let result = {
+        kind: types_TernaryTreeKind.ternaryTreeLeaf,
+        hash: item.hash,
+        elements: item.pairs,
+    };
+    return result;
+}
+// this proc is not exported, pick up next proc as the entry.
+// pairs must be sorted before passing to proc.
+function makeTernaryTreeMap(size, offset, xs) {
+    switch (size) {
+        case 0: {
+            let result = emptyBranch;
+            return result;
+        }
+        case 1: {
+            let leftPair = xs[offset];
+            let result = createLeafFromHashEntry(leftPair);
+            return result;
+        }
+        case 2: {
+            let leftPair = xs[offset];
+            let middlePair = xs[offset + 1];
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: middlePair.hash,
+                minHash: leftPair.hash,
+                left: createLeafFromHashEntry(leftPair),
+                middle: createLeafFromHashEntry(middlePair),
+                right: emptyBranch,
+                depth: 1,
+            };
+            return result;
+        }
+        case 3: {
+            let leftPair = xs[offset];
+            let middlePair = xs[offset + 1];
+            let rightPair = xs[offset + 2];
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: rightPair.hash,
+                minHash: leftPair.hash,
+                left: createLeafFromHashEntry(leftPair),
+                middle: createLeafFromHashEntry(middlePair),
+                right: createLeafFromHashEntry(rightPair),
+                depth: 1,
+            };
+            return result;
+        }
+        default: {
+            let divided = divideTernarySizes(size);
+            let left = makeTernaryTreeMap(divided.left, offset, xs);
+            let middle = makeTernaryTreeMap(divided.middle, offset + divided.left, xs);
+            let right = makeTernaryTreeMap(divided.right, offset + divided.left + divided.middle, xs);
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: getMax(right),
+                minHash: getMin(left),
+                left: left,
+                middle: middle,
+                right: right,
+                depth: Math.max(getMapDepth(left), getMapDepth(middle), getMapDepth(right)) + 1,
+            };
+            return result;
+        }
+    }
+}
+function initTernaryTreeMapFromHashEntries(xs) {
+    return makeTernaryTreeMap(xs.length, 0, xs);
+}
+function initTernaryTreeMap(t) {
+    let groupBuffers = new Map();
+    let xs = [];
+    for (let [k, v] of t) {
+        let h = hashGenerator(k);
+        if (groupBuffers.has(h)) {
+            let branch = groupBuffers.get(h);
+            if (branch != null) {
+                branch.push([k, v]);
+            }
+            else {
+                throw new Error("Expected referece to pairs");
+            }
+        }
+        else {
+            let pairs = [[k, v]];
+            groupBuffers.set(h, pairs);
+            xs.push({
+                hash: h,
+                pairs,
+            });
+        }
+    }
+    for (let [k, v] of groupBuffers) {
+        if (v != null) {
+        }
+        else {
+            throw new Error("Expected reference to paris");
+        }
+    }
+    // MUTABLE in-place sort
+    xs.sort((a, b) => cmp(a.hash, b.hash));
+    let result = initTernaryTreeMapFromHashEntries(xs);
+    // checkMapStructure(result);
+    return result;
+}
+// use for..in for performance
+function initTernaryTreeMapFromArray(t) {
+    let groupBuffers = {};
+    let xs = [];
+    for (let idx = 0; idx < t.length; idx++) {
+        let k = t[idx][0];
+        let v = t[idx][1];
+        let h = types_hashGenerator(k);
+        if (groupBuffers[h] != null) {
+            let branch = groupBuffers[h];
+            if (branch != null) {
+                branch.push([k, v]);
+            }
+            else {
+                throw new Error("Expected referece to pairs");
+            }
+        }
+        else {
+            let pairs = [[k, v]];
+            groupBuffers[h] = pairs;
+            xs.push({
+                hash: h,
+                pairs: pairs,
+            });
+        }
+    }
+    // MUTABLE in-place sort
+    xs.sort((a, b) => utils_cmp(a.hash, b.hash));
+    let result = initTernaryTreeMapFromHashEntries(xs);
+    // checkMapStructure(result);
+    return result;
+}
+// for empty map
+function initEmptyTernaryTreeMap() {
+    let result = emptyBranch;
+    return result;
+}
+function mapToString(tree) {
+    return `TernaryTreeMap[${mapLen(tree)}, ...]`;
+}
+function mapLen(tree) {
+    if (tree == null) {
+        return 0;
+    }
+    switch (tree.kind) {
+        case types_TernaryTreeKind.ternaryTreeLeaf:
+            return tree.elements.length;
+        case types_TernaryTreeKind.ternaryTreeBranch:
+            return mapLen(tree.left) + mapLen(tree.middle) + mapLen(tree.right); // TODO
+        default:
+            throw new Error("Unknown");
+    }
+}
+// when size succeeds bound, no longer counting, faster than traversing whole tree
+function mapLenBound(tree, bound) {
+    if (tree == null) {
+        return 0;
+    }
+    switch (tree.kind) {
+        case types_TernaryTreeKind.ternaryTreeLeaf:
+            return tree.elements.length;
+        case types_TernaryTreeKind.ternaryTreeBranch:
+            let ret = mapLenBound(tree.left, bound);
+            if (ret > bound) {
+                return ret;
+            }
+            ret = ret + mapLenBound(tree.middle, bound);
+            if (ret > bound) {
+                return ret;
+            }
+            ret = ret + mapLenBound(tree.right, bound);
+            return ret;
+        default:
+            throw new Error("Unknown");
+    }
+}
+function formatMapInline(tree, withHash = false) {
+    if (tree == null) {
+        return "_";
+    }
+    switch (tree.kind) {
+        case TernaryTreeKind.ternaryTreeLeaf:
+            if (withHash) {
+                return `${tree.hash}->${tree.elements[0][0]}:${tree.elements[0][1]}`; // TODO show whole list
+            }
+            else {
+                return `${tree.elements[0][0]}:${tree.elements[0][1]}`;
+            }
+        case TernaryTreeKind.ternaryTreeBranch: {
+            return "(" + formatMapInline(tree.left, withHash) + " " + formatMapInline(tree.middle, withHash) + " " + formatMapInline(tree.right, withHash) + ")";
+        }
+        default:
+            throw new Error("Unknown");
+    }
+}
+function isMapEmpty(tree) {
+    if (tree == null) {
+        return true;
+    }
+    switch (tree.kind) {
+        case types_TernaryTreeKind.ternaryTreeLeaf:
+            return false;
+        case types_TernaryTreeKind.ternaryTreeBranch:
+            return tree.left == null && tree.middle == null && tree.right == null;
+        default:
+            throw new Error("Unknown");
+    }
+}
+function isMapOfOne(tree, counted = 0) {
+    if (tree == null) {
+        return true;
+    }
+    switch (tree.kind) {
+        case TernaryTreeKind.ternaryTreeLeaf:
+            return false;
+        case TernaryTreeKind.ternaryTreeBranch:
+            return tree.left == null && tree.middle == null && tree.right == null;
+        default:
+            throw new Error("Unknown");
+    }
+}
+function collectHashSortedArray(tree, acc, idx) {
+    if (tree == null || isMapEmpty(tree)) {
+        // discard
+    }
+    else {
+        switch (tree.kind) {
+            case TernaryTreeKind.ternaryTreeLeaf: {
+                for (let i = 0; i < tree.elements.length; i++) {
+                    let item = tree.elements[i];
+                    acc[idx.value] = item;
+                    idx.value = idx.value + 1;
+                }
+                break;
+            }
+            case TernaryTreeKind.ternaryTreeBranch: {
+                collectHashSortedArray(tree.left, acc, idx);
+                collectHashSortedArray(tree.middle, acc, idx);
+                collectHashSortedArray(tree.right, acc, idx);
+                break;
+            }
+            default:
+                throw new Error("Unknown");
+        }
+    }
+}
+// sorted by hash(tree.key)
+function toHashSortedPairs(tree) {
+    let acc = new Array(mapLen(tree));
+    let idx = { value: 0 };
+    collectHashSortedArray(tree, acc, idx);
+    return acc;
+}
+function collectOrderedHashEntries(tree, acc, idx) {
+    if (tree == null || isMapEmpty(tree)) {
+        // discard
+    }
+    else {
+        switch (tree.kind) {
+            case types_TernaryTreeKind.ternaryTreeLeaf: {
+                acc[idx.value] = { hash: tree.hash, pairs: tree.elements };
+                idx.value = idx.value + 1;
+                break;
+            }
+            case types_TernaryTreeKind.ternaryTreeBranch: {
+                collectOrderedHashEntries(tree.left, acc, idx);
+                collectOrderedHashEntries(tree.middle, acc, idx);
+                collectOrderedHashEntries(tree.right, acc, idx);
+                break;
+            }
+            default: {
+                throw new Error("Unknown");
+            }
+        }
+    }
+}
+// for reusing leaves during rebalancing
+function toOrderedHashEntries(tree) {
+    let acc = new Array(mapLen(tree));
+    let idx = { value: 0 };
+    collectOrderedHashEntries(tree, acc, idx);
+    return acc;
+}
+function contains(originalTree, item) {
+    if (originalTree == null) {
+        return false;
+    }
+    // TODO
+    // reduce redundant computation by reusing hash result
+    let hx = types_hashGenerator(item);
+    let tree = originalTree;
+    whileLoop: while (tree != null) {
+        if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+            if (hx === tree.hash) {
+                let size = tree.elements.length;
+                for (let idx = 0; idx < size; idx++) {
+                    let pair = tree.elements[idx];
+                    if (utils_dataEqual(pair[0], item)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        // echo "looking for: ", hx, " ", item, " in ", tree.formatInline(true)
+        if (tree.left == null) {
+            return false;
+        }
+        if (tree.left.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+            if (hx < tree.left.hash) {
+                return false;
+            }
+            if (tree.left.hash === hx) {
+                tree = tree.left;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        else {
+            if (hx < tree.left.minHash) {
+                return false;
+            }
+            if (hx <= tree.left.maxHash) {
+                tree = tree.left;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        if (tree.middle == null) {
+            return false;
+        }
+        if (tree.middle.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+            if (hx < tree.middle.hash) {
+                return false;
+            }
+            if (tree.middle.hash === hx) {
+                tree = tree.middle;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        else {
+            if (hx < tree.middle.minHash) {
+                return false;
+            }
+            if (hx <= tree.middle.maxHash) {
+                tree = tree.middle;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        if (tree.right == null) {
+            return false;
+        }
+        if (tree.right.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+            if (hx < tree.right.hash) {
+                return false;
+            }
+            if (tree.right.hash === hx) {
+                tree = tree.right;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        else {
+            if (hx < tree.right.minHash) {
+                return false;
+            }
+            if (hx <= tree.right.maxHash) {
+                tree = tree.right;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        return false;
+    }
+    return false;
+}
+function mapGetDefault(originalTree, item, v0) {
+    let hx = types_hashGenerator(item);
+    let tree = originalTree;
+    whileLoop: while (tree != null) {
+        if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+            let size = tree.elements.length;
+            for (let i = 0; i < size; i++) {
+                let pair = tree.elements[i];
+                if (utils_dataEqual(pair[0], item)) {
+                    return pair[1];
+                }
+            }
+            return v0;
+        }
+        // echo "looking for: ", hx, " ", item, " in ", tree.formatInline
+        if (tree.left == null) {
+            return v0;
+        }
+        if (tree.left.kind == types_TernaryTreeKind.ternaryTreeLeaf) {
+            if (hx < tree.left.hash) {
+                return v0;
+            }
+            if (tree.left.hash === hx) {
+                tree = tree.left;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        else {
+            if (hx < tree.left.minHash) {
+                return v0;
+            }
+            if (hx <= tree.left.maxHash) {
+                tree = tree.left;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        if (tree.middle == null) {
+            return v0;
+        }
+        if (tree.middle.kind == types_TernaryTreeKind.ternaryTreeLeaf) {
+            if (hx < tree.middle.hash) {
+                return v0;
+            }
+            if (tree.middle.hash === hx) {
+                tree = tree.middle;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        else {
+            if (hx < tree.middle.minHash) {
+                return v0;
+            }
+            if (hx <= tree.middle.maxHash) {
+                tree = tree.middle;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        if (tree.right == null) {
+            return v0;
+        }
+        if (tree.right.kind == types_TernaryTreeKind.ternaryTreeLeaf) {
+            if (hx < tree.right.hash) {
+                return v0;
+            }
+            if (tree.right.hash === hx) {
+                tree = tree.right;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        else {
+            if (hx < tree.right.minHash) {
+                return v0;
+            }
+            if (hx <= tree.right.maxHash) {
+                tree = tree.right;
+                continue whileLoop; // notice, it jumps to while loop
+            }
+        }
+        return v0;
+    }
+    return v0;
+}
+// leaves on the left has smaller hashes
+// TODO check sizes, hashes
+function checkMapStructure(tree) {
+    if (tree.kind === TernaryTreeKind.ternaryTreeLeaf) {
+        for (let i = 0; i < tree.elements.length; i++) {
+            let pair = tree.elements[i];
+            if (pair.length !== 2) {
+                throw new Error("Expected pair to br [k,v] :" + pair);
+            }
+            if (tree.hash !== hashGenerator(pair[0])) {
+                throw new Error(`Bad hash at leaf node ${tree}`);
+            }
+        }
+        if (mapLenBound(tree, 2) !== 1) {
+            throw new Error(`Bad len at leaf node ${tree}`);
+        }
+    }
+    else {
+        if (tree.left == null) {
+            if (tree.middle != null) {
+                throw new Error("Layout is not compact");
+            }
+            if (tree.middle != null) {
+                throw new Error("Layout is not compact");
+            }
+        }
+        if (tree.middle == null) {
+            if (tree.right != null) {
+                throw new Error("Layout is not compact");
+            }
+        }
+        if (tree.left != null && tree.middle != null) {
+            if (getMax(tree.left) >= getMin(tree.middle)) {
+                throw new Error(`Wrong hash order at left/middle branches ${formatMapInline(tree, true)}`);
+            }
+        }
+        if (tree.left != null && tree.right != null) {
+            if (getMax(tree.left) >= getMin(tree.right)) {
+                console.log(getMax(tree.left), getMin(tree.right));
+                throw new Error(`Wrong hash order at left/right branches ${formatMapInline(tree, true)}`);
+            }
+        }
+        if (tree.middle != null && tree.right != null) {
+            if (getMax(tree.middle) >= getMin(tree.right)) {
+                throw new Error(`Wrong hash order at middle/right branches ${formatMapInline(tree, true)}`);
+            }
+        }
+        if (tree.left != null) {
+            checkMapStructure(tree.left);
+        }
+        if (tree.middle != null) {
+            checkMapStructure(tree.middle);
+        }
+        if (tree.right != null) {
+            checkMapStructure(tree.right);
+        }
+    }
+    return true;
+}
+function rangeContainsHash(tree, thisHash) {
+    if (tree == null) {
+        return false;
+    }
+    else if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+        return tree.hash === thisHash;
+    }
+    else {
+        return thisHash >= tree.minHash && thisHash <= tree.maxHash;
+    }
+}
+function assocExisted(tree, key, item, thisHash = null) {
+    if (tree == null || isMapEmpty(tree)) {
+        throw new Error("Cannot call assoc on nil");
+    }
+    thisHash = thisHash !== null && thisHash !== void 0 ? thisHash : types_hashGenerator(key);
+    if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+        if (tree.hash !== thisHash) {
+            throw new Error("Expected hashes to be identical, otherwise element is missing");
+        }
+        let newPairs = new Array(tree.elements.length);
+        let replaced = false;
+        let size = tree.elements.length;
+        for (let idx = 0; idx < size; idx++) {
+            let pair = tree.elements[idx];
+            if (utils_dataEqual(pair[0], key)) {
+                newPairs[idx] = [key, item];
+                replaced = true;
+            }
+            else {
+                newPairs[idx] = pair;
+            }
+        }
+        if (replaced) {
+            let result = { kind: types_TernaryTreeKind.ternaryTreeLeaf, hash: thisHash, elements: newPairs };
+            return result;
+        }
+        else {
+            throw new Error("Unexpected missing hash in assoc, invalid branch");
+        }
+    }
+    if (thisHash < tree.minHash)
+        throw new Error("Unexpected missing hash in assoc, hash too small");
+    else if (thisHash > tree.maxHash)
+        throw new Error("Unexpected missing hash in assoc, hash too large");
+    if (tree.left == null) {
+        throw new Error("Unexpected missing hash in assoc, found not branch");
+    }
+    if (rangeContainsHash(tree.left, thisHash)) {
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            maxHash: tree.maxHash,
+            minHash: tree.minHash,
+            left: assocExisted(tree.left, key, item, thisHash),
+            middle: tree.middle,
+            right: tree.right,
+            depth: 0, // TODO
+        };
+        return result;
+    }
+    if (tree.middle == null) {
+        throw new Error("Unexpected missing hash in assoc, found not branch");
+    }
+    if (rangeContainsHash(tree.middle, thisHash)) {
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            maxHash: tree.maxHash,
+            minHash: tree.minHash,
+            left: tree.left,
+            middle: assocExisted(tree.middle, key, item, thisHash),
+            right: tree.right,
+            depth: 0, // TODO
+        };
+        return result;
+    }
+    if (tree.right == null) {
+        throw new Error("Unexpected missing hash in assoc, found not branch");
+    }
+    if (rangeContainsHash(tree.right, thisHash)) {
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            maxHash: tree.maxHash,
+            minHash: tree.minHash,
+            left: tree.left,
+            middle: tree.middle,
+            right: assocExisted(tree.right, key, item, thisHash),
+            depth: 0, // TODO
+        };
+        return result;
+    }
+    throw new Error("Unexpected missing hash in assoc, found not branch");
+}
+function assocNew(tree, key, item, thisHash = null) {
+    // echo fmt"assoc new: {key} to {tree.formatInline}"
+    if (tree == null || isMapEmpty(tree)) {
+        return createLeaf(key, item);
+    }
+    thisHash = thisHash !== null && thisHash !== void 0 ? thisHash : types_hashGenerator(key);
+    if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+        if (thisHash > tree.hash) {
+            let childBranch = {
+                kind: types_TernaryTreeKind.ternaryTreeLeaf,
+                hash: thisHash,
+                elements: [[key, item]],
+            };
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: thisHash,
+                minHash: tree.hash,
+                left: tree,
+                middle: childBranch,
+                right: emptyBranch,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+        else if (thisHash < tree.hash) {
+            let childBranch = {
+                kind: types_TernaryTreeKind.ternaryTreeLeaf,
+                hash: thisHash,
+                elements: [[key, item]],
+            };
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: tree.hash,
+                minHash: thisHash,
+                left: childBranch,
+                middle: tree,
+                right: emptyBranch,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+        else {
+            let size = tree.elements.length;
+            for (let i = 0; i < size; i++) {
+                let pair = tree.elements[i];
+                if (utils_dataEqual(pair[0], key)) {
+                    throw new Error("Unexpected existed key in assoc");
+                }
+            }
+            let newPairs = new Array(tree.elements.length + 1);
+            for (let idx = 0; idx < size; idx++) {
+                let pair = tree.elements[idx];
+                newPairs[idx] = pair;
+            }
+            newPairs[tree.elements.length] = [key, item];
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeLeaf,
+                hash: tree.hash,
+                elements: newPairs,
+            };
+            return result;
+        }
+    }
+    else {
+        if (thisHash < tree.minHash) {
+            if (tree.right == null) {
+                let childBranch = {
+                    kind: types_TernaryTreeKind.ternaryTreeLeaf,
+                    hash: thisHash,
+                    elements: [[key, item]],
+                };
+                let result = {
+                    kind: types_TernaryTreeKind.ternaryTreeBranch,
+                    maxHash: tree.maxHash,
+                    minHash: thisHash,
+                    left: childBranch,
+                    middle: tree.left,
+                    right: tree.middle,
+                    depth: 0, // TODO
+                };
+                return result;
+            }
+            else {
+                let childBranch = {
+                    kind: types_TernaryTreeKind.ternaryTreeLeaf,
+                    hash: thisHash,
+                    elements: [[key, item]],
+                };
+                let result = {
+                    kind: types_TernaryTreeKind.ternaryTreeBranch,
+                    maxHash: tree.maxHash,
+                    minHash: thisHash,
+                    left: childBranch,
+                    middle: tree,
+                    right: emptyBranch,
+                    depth: 0, // TODO
+                };
+                return result;
+            }
+        }
+        if (thisHash > tree.maxHash) {
+            // in compact layout, left arm must be existed
+            if (tree.middle == null) {
+                let childBranch = {
+                    kind: types_TernaryTreeKind.ternaryTreeLeaf,
+                    hash: thisHash,
+                    elements: [[key, item]],
+                };
+                let result = {
+                    kind: types_TernaryTreeKind.ternaryTreeBranch,
+                    maxHash: thisHash,
+                    minHash: tree.minHash,
+                    left: tree.left,
+                    middle: childBranch,
+                    right: emptyBranch,
+                    depth: 0, // TODO
+                };
+                return result;
+            }
+            else if (tree.right == null) {
+                let childBranch = {
+                    kind: types_TernaryTreeKind.ternaryTreeLeaf,
+                    hash: thisHash,
+                    elements: [[key, item]],
+                };
+                let result = {
+                    kind: types_TernaryTreeKind.ternaryTreeBranch,
+                    maxHash: thisHash,
+                    minHash: tree.minHash,
+                    left: tree.left,
+                    middle: tree.middle,
+                    right: childBranch,
+                    depth: 0, // TODO
+                };
+                return result;
+            }
+            else {
+                let childBranch = {
+                    kind: types_TernaryTreeKind.ternaryTreeLeaf,
+                    hash: thisHash,
+                    elements: [[key, item]],
+                };
+                let result = {
+                    kind: types_TernaryTreeKind.ternaryTreeBranch,
+                    maxHash: thisHash,
+                    minHash: tree.minHash,
+                    left: tree,
+                    middle: childBranch,
+                    right: emptyBranch,
+                    depth: 0, // TODO
+                };
+                return result;
+            }
+        }
+        if (rangeContainsHash(tree.left, thisHash)) {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: tree.maxHash,
+                minHash: tree.minHash,
+                left: assocNew(tree.left, key, item, thisHash),
+                middle: tree.middle,
+                right: tree.right,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+        if (rangeContainsHash(tree.middle, thisHash)) {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: tree.maxHash,
+                minHash: tree.minHash,
+                left: tree.left,
+                middle: assocNew(tree.middle, key, item, thisHash),
+                right: tree.right,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+        if (rangeContainsHash(tree.right, thisHash)) {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: tree.maxHash,
+                minHash: tree.minHash,
+                left: tree.left,
+                middle: tree.middle,
+                right: assocNew(tree.right, key, item, thisHash),
+                depth: 0, // TODO
+            };
+            return result;
+        }
+        if (tree.middle == null) {
+            throw new Error("unreachable. if inside range, then middle should be here");
+        }
+        if (thisHash < getMin(tree.middle)) {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: tree.maxHash,
+                minHash: tree.minHash,
+                left: assocNew(tree.left, key, item, thisHash),
+                middle: tree.middle,
+                right: tree.right,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+        else {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: tree.maxHash,
+                minHash: tree.minHash,
+                left: tree.left,
+                middle: tree.middle,
+                right: assocNew(tree.right, key, item, thisHash),
+                depth: 0, // TODO
+            };
+            return result;
+        }
+    }
+}
+function assocMap(tree, key, item, disableBalancing = false) {
+    if (tree == null || isMapEmpty(tree)) {
+        return createLeaf(key, item);
+    }
+    if (contains(tree, key)) {
+        return assocExisted(tree, key, item);
+    }
+    else {
+        return assocNew(tree, key, item);
+    }
+}
+function dissocExisted(tree, key) {
+    if (tree == null) {
+        throw new Error("Unexpected missing key in dissoc");
+    }
+    if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+        if (tree.hash === types_hashGenerator(key)) {
+            let size = tree.elements.length;
+            if (size === 1 && utils_dataEqual(key, tree.elements[0][0])) {
+                return emptyBranch;
+            }
+            else {
+                let newPairs = [];
+                for (let i = 0; i < size; i++) {
+                    let pair = tree.elements[i];
+                    if (!utils_dataEqual(pair[0], key)) {
+                        newPairs.push(pair);
+                    }
+                }
+                let result = { kind: types_TernaryTreeKind.ternaryTreeLeaf, hash: tree.hash, elements: newPairs };
+                return result;
+            }
+        }
+        else {
+            throw new Error("Unexpected missing key in dissoc on leaf");
+        }
+    }
+    if (mapLenBound(tree, 2) === 1) {
+        if (!contains(tree, key)) {
+            throw new Error("Unexpected missing key in dissoc single branch");
+        }
+        return emptyBranch;
+    }
+    let thisHash = types_hashGenerator(key);
+    if (rangeContainsHash(tree.left, thisHash)) {
+        let changedBranch = dissocExisted(tree.left, key);
+        if (isMapEmpty(changedBranch)) {
+            if (isMapEmpty(tree.right)) {
+                return tree.middle;
+            }
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: tree.maxHash,
+                minHash: getMin(tree.middle),
+                left: tree.middle,
+                middle: tree.right,
+                right: emptyBranch,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+        else {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: tree.maxHash,
+                minHash: getMin(changedBranch),
+                left: changedBranch,
+                middle: tree.middle,
+                right: tree.right,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+    }
+    if (rangeContainsHash(tree.middle, thisHash)) {
+        let changedBranch = dissocExisted(tree.middle, key);
+        if (isMapEmpty(changedBranch)) {
+            if (isMapEmpty(tree.right)) {
+                return tree.left;
+            }
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: tree.maxHash,
+                minHash: tree.minHash,
+                left: tree.left,
+                middle: tree.right,
+                right: emptyBranch,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+        else {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: tree.maxHash,
+                minHash: tree.minHash,
+                left: tree.left,
+                middle: changedBranch,
+                right: tree.right,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+    }
+    if (rangeContainsHash(tree.right, thisHash)) {
+        let changedBranch = dissocExisted(tree.right, key);
+        if (changedBranch == null) {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: getMax(tree.middle),
+                minHash: tree.minHash,
+                left: tree.left,
+                middle: tree.middle,
+                right: emptyBranch,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+        else {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                maxHash: getMax(changedBranch),
+                minHash: tree.minHash,
+                left: tree.left,
+                middle: tree.middle,
+                right: changedBranch,
+                depth: 0, // TODO
+            };
+            return result;
+        }
+    }
+    throw new Error("Cannot find branch in dissoc");
+}
+function dissocMap(tree, key) {
+    if (contains(tree, key)) {
+        return dissocExisted(tree, key);
+    }
+    else {
+        return tree;
+    }
+}
+function collectToPairsArray(acc, tree) {
+    if (tree != null) {
+        if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+            for (let i = 0; i < tree.elements.length; i++) {
+                let pair = tree.elements[i];
+                acc.push(pair);
+            }
+        }
+        else {
+            if (tree.left != null) {
+                collectToPairsArray(acc, tree.left);
+            }
+            if (tree.middle != null) {
+                collectToPairsArray(acc, tree.middle);
+            }
+            if (tree.right != null) {
+                collectToPairsArray(acc, tree.right);
+            }
+        }
+    }
+}
+/** similar to `toPairs`, but using Array.push directly */
+function toPairsArray(tree) {
+    let result = [];
+    collectToPairsArray(result, tree);
+    return result;
+}
+function* toPairs(tree) {
+    if (tree != null) {
+        if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+            for (let pair of tree.elements) {
+                yield pair;
+            }
+        }
+        else {
+            if (tree.left != null) {
+                for (let item of toPairs(tree.left)) {
+                    yield item;
+                }
+            }
+            if (tree.middle != null) {
+                for (let item of toPairs(tree.middle)) {
+                    yield item;
+                }
+            }
+            if (tree.right != null) {
+                for (let item of toPairs(tree.right)) {
+                    yield item;
+                }
+            }
+        }
+    }
+}
+function* toKeys(tree) {
+    if (tree != null) {
+        if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+            for (let i = 0; i < tree.elements.length; i++) {
+                let pair = tree.elements[i];
+                yield pair[0];
+            }
+        }
+        else {
+            if (tree.left != null) {
+                for (let item of toKeys(tree.left)) {
+                    yield item;
+                }
+            }
+            if (tree.middle != null) {
+                for (let item of toKeys(tree.middle)) {
+                    yield item;
+                }
+            }
+            if (tree.right != null) {
+                for (let item of toKeys(tree.right)) {
+                    yield item;
+                }
+            }
+        }
+    }
+}
+function* toValues(tree) {
+    if (tree != null) {
+        if (tree.kind === TernaryTreeKind.ternaryTreeLeaf) {
+            for (let i = 0; i < tree.elements.length; i++) {
+                let pair = tree.elements[i];
+                yield pair[1];
+            }
+        }
+        else {
+            if (tree.left != null) {
+                for (let item of toValues(tree.left)) {
+                    yield item;
+                }
+            }
+            if (tree.middle != null) {
+                for (let item of toValues(tree.middle)) {
+                    yield item;
+                }
+            }
+            if (tree.right != null) {
+                for (let item of toValues(tree.right)) {
+                    yield item;
+                }
+            }
+        }
+    }
+}
+function mapEqual(xs, ys) {
+    if (xs === ys) {
+        return true;
+    }
+    if (mapLen(xs) !== mapLen(ys)) {
+        return false;
+    }
+    if (isMapEmpty(xs)) {
+        return true;
+    }
+    for (let pair of toPairsArray(xs)) {
+        let key = pair[0];
+        let vx = pair[1];
+        if (!contains(ys, key)) {
+            return false;
+        }
+        let vy = mapGetDefault(ys, key, null);
+        // TODO compare deep structures
+        if (!dataEqual(vx, vy)) {
+            return false;
+        }
+    }
+    return true;
+}
+function merge(xs, ys) {
+    let ret = xs;
+    let counted = 0;
+    for (let [key, item] of toPairs(ys)) {
+        ret = assocMap(ret, key, item);
+        // # TODO pickd loop by experience
+        if (counted > 700) {
+            forceMapInplaceBalancing(ret);
+            counted = 0;
+        }
+        else {
+            counted = counted + 1;
+        }
+    }
+    return ret;
+}
+// # skip a value, mostly for nil
+function mergeSkip(xs, ys, skipped) {
+    let ret = xs;
+    let counted = 0;
+    for (let [key, item] of toPairs(ys)) {
+        if (utils_dataEqual(item, skipped)) {
+            continue;
+        }
+        ret = assocMap(ret, key, item);
+        // # TODO pickd loop by experience
+        if (counted > 700) {
+            forceMapInplaceBalancing(ret);
+            counted = 0;
+        }
+        else {
+            counted = counted + 1;
+        }
+    }
+    return ret;
+}
+// this function mutates original tree to make it more balanced
+function forceMapInplaceBalancing(tree) {
+    // echo "Force inplace balancing of list"
+    if (tree.kind === types_TernaryTreeKind.ternaryTreeBranch) {
+        let xs = toOrderedHashEntries(tree);
+        let newTree = makeTernaryTreeMap(xs.length, 0, xs);
+        tree.left = newTree.left;
+        tree.middle = newTree.middle;
+        tree.right = newTree.right;
+    }
+    else {
+        // discard
+    }
+}
+function sameMapShape(xs, ys) {
+    if (xs == null) {
+        if (ys == null) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+    if (ys == null) {
+        return false;
+    }
+    if (mapLen(xs) !== mapLen(ys)) {
+        return false;
+    }
+    if (xs.kind !== ys.kind) {
+        return false;
+    }
+    if (xs.kind === TernaryTreeKind.ternaryTreeLeaf && ys.kind === TernaryTreeKind.ternaryTreeLeaf) {
+        if (xs.elements.length !== ys.elements.length) {
+            return false;
+        }
+        for (let idx = 0; idx < xs.elements.length; idx++) {
+            if (!dataEqual(xs.elements[idx], ys.elements[idx])) {
+                return false;
+            }
+        }
+        return true;
+    }
+    else if (xs.kind === TernaryTreeKind.ternaryTreeBranch && ys.kind === TernaryTreeKind.ternaryTreeBranch) {
+        if (!sameMapShape(xs.left, ys.left)) {
+            return false;
+        }
+        if (!sameMapShape(xs.middle, ys.middle)) {
+            return false;
+        }
+        if (!sameMapShape(xs.right, ys.right)) {
+            return false;
+        }
+        return true;
+    }
+    else {
+        throw new Error("Unknown");
+    }
+}
+function mapMapValues(tree, f) {
+    if (tree == null) {
+        return tree;
+    }
+    switch (tree.kind) {
+        case TernaryTreeKind.ternaryTreeLeaf: {
+            let newElements = new Array(tree.elements.length);
+            let size = tree.elements.length;
+            for (let idx = 0; idx < size; idx++) {
+                newElements[idx] = [tree.elements[idx][0], f(tree.elements[idx][1])];
+            }
+            let result = {
+                kind: TernaryTreeKind.ternaryTreeLeaf,
+                hash: tree.hash,
+                elements: newElements,
+            };
+            return result;
+        }
+        case TernaryTreeKind.ternaryTreeBranch: {
+            let result = {
+                kind: TernaryTreeKind.ternaryTreeBranch,
+                depth: tree.depth,
+                minHash: tree.minHash,
+                maxHash: tree.maxHash,
+                left: mapMapValues(tree.left, f),
+                middle: mapMapValues(tree.middle, f),
+                right: mapMapValues(tree.right, f),
+            };
+            return result;
+        }
+    }
+}
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/ternary-tree/lib/list.mjs
+
+
+// just get, will not compute recursively
+function getDepth(tree) {
+    if (tree == null)
+        return 0;
+    switch (tree.kind) {
+        case types_TernaryTreeKind.ternaryTreeLeaf:
+            return 1;
+        case types_TernaryTreeKind.ternaryTreeBranch:
+            return tree.depth;
+    }
+}
+let list_emptyBranch = null;
+let isEmptyBranch = (x) => {
+    if (x == null) {
+        return true;
+    }
+    return x.size == 0;
+};
+function decideParentDepth(...xs) {
+    let depth = 0;
+    for (let i = 0; i < xs.length; i++) {
+        let x = xs[i];
+        let y = getDepth(x);
+        if (y > depth) {
+            depth = y;
+        }
+    }
+    return depth + 1;
+}
+function makeTernaryTreeList(size, offset, xs) {
+    switch (size) {
+        case 0: {
+            return { kind: types_TernaryTreeKind.ternaryTreeBranch, size: 0, depth: 1, left: list_emptyBranch, middle: list_emptyBranch, right: list_emptyBranch };
+        }
+        case 1:
+            return xs[offset];
+        case 2: {
+            let left = xs[offset];
+            let middle = xs[offset + 1];
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: listLen(left) + listLen(middle),
+                left: left,
+                middle: middle,
+                right: list_emptyBranch,
+                depth: decideParentDepth(left, middle),
+            };
+            checkListStructure(result);
+            return result;
+        }
+        case 3: {
+            let left = xs[offset];
+            let middle = xs[offset + 1];
+            let right = xs[offset + 2];
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: listLen(left) + listLen(middle) + listLen(right),
+                left: left,
+                middle: middle,
+                right: right,
+                depth: decideParentDepth(left, middle, right),
+            };
+            checkListStructure(result);
+            return result;
+        }
+        default: {
+            let divided = divideTernarySizes(size);
+            let left = makeTernaryTreeList(divided.left, offset, xs);
+            let middle = makeTernaryTreeList(divided.middle, offset + divided.left, xs);
+            let right = makeTernaryTreeList(divided.right, offset + divided.left + divided.middle, xs);
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: listLen(left) + listLen(middle) + listLen(right),
+                depth: decideParentDepth(left, middle, right),
+                left: left,
+                middle: middle,
+                right: right,
+            };
+            checkListStructure(result);
+            return result;
+        }
+    }
+}
+function initTernaryTreeList(xs) {
+    let ys = new Array(xs.length);
+    let size = xs.length;
+    for (let idx = 0; idx < size; idx++) {
+        let x = xs[idx];
+        ys[idx] = { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: x };
+    }
+    return makeTernaryTreeList(xs.length, 0, ys);
+}
+// from a slice of an existed array
+function initTernaryTreeListFromRange(xs, from, to) {
+    let ys = new Array(to - from);
+    for (let idx = from; idx < to; idx++) {
+        let x = xs[idx];
+        ys[idx - from] = { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: x };
+    }
+    return makeTernaryTreeList(ys.length, 0, ys);
+}
+function initEmptyTernaryTreeList() {
+    return { kind: TernaryTreeKind.ternaryTreeBranch, size: 0, depth: 1, middle: list_emptyBranch, left: list_emptyBranch, right: list_emptyBranch };
+}
+function listToString(tree) {
+    return `TernaryTreeList[${tree.size}, ...]`;
+}
+function listLen(tree) {
+    if (tree == null) {
+        return 0;
+    }
+    else {
+        return tree.size;
+    }
+}
+function isLeaf(tree) {
+    return tree.kind === TernaryTreeKind.ternaryTreeLeaf;
+}
+function isBranch(tree) {
+    return tree.kind === TernaryTreeKind.ternaryTreeBranch;
+}
+function formatListInline(tree) {
+    if (tree == null) {
+        return "_";
+    }
+    switch (tree.kind) {
+        case types_TernaryTreeKind.ternaryTreeLeaf:
+            return `${tree.value}`;
+        case types_TernaryTreeKind.ternaryTreeBranch:
+            return "(" + formatListInline(tree.left) + " " + formatListInline(tree.middle) + " " + formatListInline(tree.right) + ")";
+        // "(" & tree.left.formatListInline & " " & tree.middle.formatListInline & " " & tree.right.formatListInline & ")@{tree.depth} " & "{tree.left.getDepth} {tree.middle.getDepth} {tree.right.getDepth}..."
+    }
+}
+function* listToItems(tree) {
+    if (tree != null) {
+        switch (tree.kind) {
+            case types_TernaryTreeKind.ternaryTreeLeaf: {
+                yield tree.value;
+                break;
+            }
+            case types_TernaryTreeKind.ternaryTreeBranch: {
+                if (tree.left != null) {
+                    for (let x of listToItems(tree.left)) {
+                        yield x;
+                    }
+                }
+                if (tree.middle != null) {
+                    for (let x of listToItems(tree.middle)) {
+                        yield x;
+                    }
+                }
+                if (tree.right != null) {
+                    for (let x of listToItems(tree.right)) {
+                        yield x;
+                    }
+                }
+                break;
+            }
+        }
+    }
+}
+// returns -1 if (not foun)
+function findIndex(tree, f) {
+    if (tree == null) {
+        return -1;
+    }
+    switch (tree.kind) {
+        case TernaryTreeKind.ternaryTreeLeaf: {
+            if (f(tree.value)) {
+                return 0;
+            }
+            else {
+                return -1;
+            }
+        }
+        case TernaryTreeKind.ternaryTreeBranch: {
+            let tryLeft = findIndex(tree.left, f);
+            if (tryLeft >= 0) {
+                return tryLeft;
+            }
+            let tryMiddle = findIndex(tree.middle, f);
+            if (tryMiddle >= 0) {
+                return tryMiddle + listLen(tree.left);
+            }
+            let tryRight = findIndex(tree.right, f);
+            if (tryRight >= 0) {
+                return tryRight + listLen(tree.left) + listLen(tree.middle);
+            }
+            return -1;
+        }
+    }
+}
+// returns -1 if (not foun)
+function indexOf(tree, item) {
+    if (tree == null) {
+        return -1;
+    }
+    switch (tree.kind) {
+        case TernaryTreeKind.ternaryTreeLeaf:
+            if (dataEqual(item, tree.value)) {
+                return 0;
+            }
+        default:
+            return -1;
+        case TernaryTreeKind.ternaryTreeBranch:
+            let tryLeft = indexOf(tree.left, item);
+            if (tryLeft >= 0) {
+                return tryLeft;
+            }
+            let tryMiddle = indexOf(tree.middle, item);
+            if (tryMiddle >= 0) {
+                return tryMiddle + listLen(tree.left);
+            }
+            let tryRight = indexOf(tree.right, item);
+            if (tryRight >= 0) {
+                return tryRight + listLen(tree.left) + listLen(tree.middle);
+            }
+            return -1;
+    }
+}
+function writeLeavesArray(tree, acc, idx) {
+    if (tree == null) {
+        //
+    }
+    else {
+        switch (tree.kind) {
+            case types_TernaryTreeKind.ternaryTreeLeaf: {
+                acc[idx.value] = tree;
+                idx.value = idx.value + 1;
+                break;
+            }
+            case types_TernaryTreeKind.ternaryTreeBranch: {
+                if (tree.left != null) {
+                    writeLeavesArray(tree.left, acc, idx);
+                }
+                if (tree.middle != null) {
+                    writeLeavesArray(tree.middle, acc, idx);
+                }
+                if (tree.right != null) {
+                    writeLeavesArray(tree.right, acc, idx);
+                }
+                break;
+            }
+            default: {
+                throw new Error("Unknown");
+            }
+        }
+    }
+}
+function toLeavesArray(tree) {
+    let acc = new Array(listLen(tree));
+    let counter = { value: 0 };
+    writeLeavesArray(tree, acc, counter);
+    return acc;
+}
+function* indexToItems(tree) {
+    for (let idx = 0; idx < listLen(tree); idx++) {
+        yield listGet(tree, idx);
+    }
+}
+function* listToPairs(tree) {
+    let idx = 0;
+    for (let x of listToItems(tree)) {
+        yield [idx, x];
+        idx = idx + 1;
+    }
+}
+function listGet(originalTree, originalIdx) {
+    let tree = originalTree;
+    let idx = originalIdx;
+    while (tree != null) {
+        if (idx < 0) {
+            throw new Error("Cannot index negative number");
+        }
+        if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+            if (idx === 0) {
+                return tree.value;
+            }
+            else {
+                throw new Error(`Cannot get from leaf with index ${idx}`);
+            }
+        }
+        if (idx > tree.size - 1) {
+            throw new Error("Index too large");
+        }
+        let leftSize = tree.left == null ? 0 : tree.left.size;
+        let middleSize = tree.middle == null ? 0 : tree.middle.size;
+        let rightSize = tree.right == null ? 0 : tree.right.size;
+        if (leftSize + middleSize + rightSize !== tree.size) {
+            throw new Error("tree.size does not match sum case branch sizes");
+        }
+        if (idx <= leftSize - 1) {
+            tree = tree.left;
+        }
+        else if (idx <= leftSize + middleSize - 1) {
+            tree = tree.middle;
+            idx = idx - leftSize;
+        }
+        else {
+            tree = tree.right;
+            idx = idx - leftSize - middleSize;
+        }
+    }
+    throw new Error(`Failed to get ${idx}`);
+}
+function first(tree) {
+    if (listLen(tree) > 0) {
+        return listGet(tree, 0);
+    }
+    else {
+        throw new Error("Cannot get from empty list");
+    }
+}
+function last(tree) {
+    if (listLen(tree) > 0) {
+        return listGet(tree, listLen(tree) - 1);
+    }
+    else {
+        throw new Error("Cannot get from empty list");
+    }
+}
+function assocList(tree, idx, item) {
+    if (idx < 0) {
+        throw new Error("Cannot index negative number");
+    }
+    if (idx > tree.size - 1) {
+        throw new Error("Index too large");
+    }
+    if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+        if (idx === 0) {
+            return { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item };
+        }
+        else {
+            throw new Error(`Cannot get from leaf with index ${idx}`);
+        }
+    }
+    let leftSize = listLen(tree.left);
+    let middleSize = listLen(tree.middle);
+    let rightSize = listLen(tree.right);
+    if (leftSize + middleSize + rightSize !== tree.size)
+        throw new Error("tree.size does not match sum case branch sizes");
+    if (idx <= leftSize - 1) {
+        let changedBranch = assocList(tree.left, idx, item);
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            size: tree.size,
+            depth: decideParentDepth(changedBranch, tree.middle, tree.right),
+            left: changedBranch,
+            middle: tree.middle,
+            right: tree.right,
+        };
+        checkListStructure(result);
+        return result;
+    }
+    else if (idx <= leftSize + middleSize - 1) {
+        let changedBranch = assocList(tree.middle, idx - leftSize, item);
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            size: tree.size,
+            depth: decideParentDepth(tree.left, changedBranch, tree.right),
+            left: tree.left,
+            middle: changedBranch,
+            right: tree.right,
+        };
+        checkListStructure(result);
+        return result;
+    }
+    else {
+        let changedBranch = assocList(tree.right, idx - leftSize - middleSize, item);
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            size: tree.size,
+            depth: decideParentDepth(tree.left, tree.middle, changedBranch),
+            left: tree.left,
+            middle: tree.middle,
+            right: changedBranch,
+        };
+        checkListStructure(result);
+        return result;
+    }
+}
+function dissocList(tree, idx) {
+    if (tree == null) {
+        throw new Error("dissoc does not work on null");
+    }
+    if (idx < 0) {
+        throw new Error(`Index is negative ${idx}`);
+    }
+    if (listLen(tree) === 0) {
+        throw new Error("Cannot remove from empty list");
+    }
+    if (idx > listLen(tree) - 1) {
+        throw new Error(`Index too large ${idx}`);
+    }
+    if (listLen(tree) === 1) {
+        return list_emptyBranch;
+    }
+    if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+        throw new Error("dissoc should be handled at branches");
+    }
+    let leftSize = listLen(tree.left);
+    let middleSize = listLen(tree.middle);
+    let rightSize = listLen(tree.right);
+    if (leftSize + middleSize + rightSize !== tree.size) {
+        throw new Error("tree.size does not match sum from branch sizes");
+    }
+    let result = list_emptyBranch;
+    if (idx <= leftSize - 1) {
+        let changedBranch = dissocList(tree.left, idx);
+        if (changedBranch == null || changedBranch.size === 0) {
+            result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: tree.size - 1,
+                depth: decideParentDepth(tree.middle, tree.right),
+                left: tree.middle,
+                middle: tree.right,
+                right: list_emptyBranch,
+            };
+        }
+        else {
+            result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: tree.size - 1,
+                depth: decideParentDepth(changedBranch, tree.middle, tree.right),
+                left: changedBranch,
+                middle: tree.middle,
+                right: tree.right,
+            };
+        }
+    }
+    else if (idx <= leftSize + middleSize - 1) {
+        let changedBranch = dissocList(tree.middle, idx - leftSize);
+        if (changedBranch == null || changedBranch.size === 0) {
+            result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: tree.size - 1,
+                depth: decideParentDepth(tree.left, changedBranch, tree.right),
+                left: tree.left,
+                middle: tree.right,
+                right: list_emptyBranch,
+            };
+        }
+        else {
+            result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: tree.size - 1,
+                depth: decideParentDepth(tree.left, changedBranch, tree.right),
+                left: tree.left,
+                middle: changedBranch,
+                right: tree.right,
+            };
+        }
+    }
+    else {
+        let changedBranch = dissocList(tree.right, idx - leftSize - middleSize);
+        if (changedBranch == null || changedBranch.size === 0) {
+            changedBranch = list_emptyBranch;
+        }
+        result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            size: tree.size - 1,
+            depth: decideParentDepth(tree.left, tree.middle, changedBranch),
+            left: tree.left,
+            middle: tree.middle,
+            right: changedBranch,
+        };
+    }
+    if (result.middle == null) {
+        return result.left;
+    }
+    checkListStructure(result);
+    return result;
+}
+function rest(tree) {
+    if (tree == null) {
+        throw new Error("Cannot call rest on null");
+    }
+    if (listLen(tree) < 1) {
+        throw new Error("Cannot call rest on empty list");
+    }
+    return dissocList(tree, 0);
+}
+function butlast(tree) {
+    if (tree == null) {
+        throw new Error("Cannot call butlast on null");
+    }
+    if (listLen(tree) < 1) {
+        throw new Error("Cannot call butlast on empty list");
+    }
+    return dissocList(tree, listLen(tree) - 1);
+}
+function insert(tree, idx, item, after = false) {
+    if (tree == null) {
+        throw new Error("Cannot insert into null");
+    }
+    if (listLen(tree) === 0) {
+        throw new Error("Empty node is not a correct position for inserting");
+    }
+    if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf) {
+        if (after) {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                depth: getDepth(tree) + 1,
+                size: 2,
+                left: tree,
+                middle: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+                right: list_emptyBranch,
+            };
+            checkListStructure(result);
+            return result;
+        }
+        else {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                depth: getDepth(tree) + 1,
+                size: 2,
+                left: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+                middle: tree,
+                right: list_emptyBranch,
+            };
+            checkListStructure(result);
+            return result;
+        }
+    }
+    checkListStructure(tree);
+    if (listLen(tree) === 1) {
+        if (after) {
+            // in compact mode, values placed at left
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: 2,
+                depth: 2,
+                left: tree.left,
+                middle: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+                right: list_emptyBranch,
+            };
+            checkListStructure(result);
+            return result;
+        }
+        else {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: 2,
+                depth: getDepth(tree.middle) + 1,
+                left: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+                middle: tree.left,
+                right: list_emptyBranch,
+            };
+            checkListStructure(result);
+            return result;
+        }
+    }
+    if (listLen(tree) === 2 && tree.middle != null) {
+        if (after) {
+            if (idx === 0) {
+                let result = {
+                    kind: types_TernaryTreeKind.ternaryTreeBranch,
+                    size: 3,
+                    depth: 2,
+                    left: tree.left,
+                    middle: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+                    right: tree.middle,
+                };
+                checkListStructure(result);
+                return result;
+            }
+            if (idx === 1) {
+                let result = {
+                    kind: types_TernaryTreeKind.ternaryTreeBranch,
+                    size: 3,
+                    depth: 2,
+                    left: tree.left,
+                    middle: tree.middle,
+                    right: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+                };
+                checkListStructure(result);
+                return result;
+            }
+            else {
+                throw new Error("cannot insert after position 2 since only 2 elements here");
+            }
+        }
+        else {
+            if (idx === 0) {
+                let result = {
+                    kind: types_TernaryTreeKind.ternaryTreeBranch,
+                    size: 3,
+                    depth: 2,
+                    left: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+                    middle: tree.left,
+                    right: tree.middle,
+                };
+                checkListStructure(result);
+                return result;
+            }
+            else if (idx === 1) {
+                let result = {
+                    kind: types_TernaryTreeKind.ternaryTreeBranch,
+                    size: 3,
+                    depth: 2,
+                    left: tree.left,
+                    middle: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+                    right: tree.middle,
+                };
+                checkListStructure(result);
+                return result;
+            }
+            else {
+                throw new Error("cannot insert before position 2 since only 2 elements here");
+            }
+        }
+    }
+    let leftSize = listLen(tree.left);
+    let middleSize = listLen(tree.middle);
+    let rightSize = listLen(tree.right);
+    if (leftSize + middleSize + rightSize !== tree.size) {
+        throw new Error("tree.size does not match sum case branch sizes");
+    }
+    // echo "picking: ", idx, " ", leftSize, " ", middleSize, " ", rightSize
+    if (idx === 0 && !after) {
+        if (listLen(tree.left) >= listLen(tree.middle) && listLen(tree.left) >= listLen(tree.right)) {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: tree.size + 1,
+                depth: tree.depth + 1,
+                left: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+                middle: tree,
+                right: list_emptyBranch,
+            };
+            checkListStructure(result);
+            return result;
+        }
+    }
+    if (idx === listLen(tree) - 1 && after) {
+        if (listLen(tree.right) >= listLen(tree.middle) && listLen(tree.right) >= listLen(tree.left)) {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: tree.size + 1,
+                depth: tree.depth + 1,
+                left: tree,
+                middle: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+                right: list_emptyBranch,
+            };
+            checkListStructure(result);
+            return result;
+        }
+    }
+    if (after && idx === listLen(tree) - 1 && rightSize === 0 && middleSize >= leftSize) {
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            size: tree.size + 1,
+            depth: tree.depth,
+            left: tree.left,
+            middle: tree.middle,
+            right: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+        };
+        checkListStructure(result);
+        return result;
+    }
+    if (!after && idx === 0 && rightSize === 0 && middleSize >= rightSize) {
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            size: tree.size + 1,
+            depth: tree.depth,
+            left: { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item },
+            middle: tree.left,
+            right: tree.middle,
+        };
+        checkListStructure(result);
+        return result;
+    }
+    if (idx <= leftSize - 1) {
+        let changedBranch = insert(tree.left, idx, item, after);
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            size: tree.size + 1,
+            depth: decideParentDepth(changedBranch, tree.middle, tree.right),
+            left: changedBranch,
+            middle: tree.middle,
+            right: tree.right,
+        };
+        checkListStructure(result);
+        return result;
+    }
+    else if (idx <= leftSize + middleSize - 1) {
+        let changedBranch = insert(tree.middle, idx - leftSize, item, after);
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            size: tree.size + 1,
+            depth: decideParentDepth(tree.left, changedBranch, tree.right),
+            left: tree.left,
+            middle: changedBranch,
+            right: tree.right,
+        };
+        checkListStructure(result);
+        return result;
+    }
+    else {
+        let changedBranch = insert(tree.right, idx - leftSize - middleSize, item, after);
+        let result = {
+            kind: types_TernaryTreeKind.ternaryTreeBranch,
+            size: tree.size + 1,
+            depth: decideParentDepth(tree.left, tree.middle, changedBranch),
+            left: tree.left,
+            middle: tree.middle,
+            right: changedBranch,
+        };
+        checkListStructure(result);
+        return result;
+    }
+}
+function assocBefore(tree, idx, item, after = false) {
+    return insert(tree, idx, item, false);
+}
+function assocAfter(tree, idx, item, after = false) {
+    return insert(tree, idx, item, true);
+}
+// this function mutates original tree to make it more balanced
+function forceListInplaceBalancing(tree) {
+    if (tree.kind === types_TernaryTreeKind.ternaryTreeBranch) {
+        // echo "Force inplace balancing case list: ", tree.size
+        let ys = toLeavesArray(tree);
+        let newTree = makeTernaryTreeList(ys.length, 0, ys);
+        // let newTree = initTernaryTreeList(ys)
+        tree.left = newTree.left;
+        tree.middle = newTree.middle;
+        tree.right = newTree.right;
+        tree.depth = decideParentDepth(tree.left, tree.middle, tree.right);
+    }
+    else {
+        //
+    }
+}
+// TODO, need better strategy for detecting
+function maybeReblance(tree) {
+    let currentDepth = getDepth(tree);
+    if (currentDepth > 10) {
+        if (roughIntPow(3, currentDepth - 10) > tree.size) {
+            forceListInplaceBalancing(tree);
+        }
+    }
+}
+function prepend(tree, item, disableBalancing = false) {
+    if (tree == null || listLen(tree) === 0) {
+        return { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item };
+    }
+    let result = insert(tree, 0, item, false);
+    if (!disableBalancing) {
+        maybeReblance(result);
+    }
+    return result;
+}
+function append(tree, item, disableBalancing = false) {
+    if (tree == null || listLen(tree) === 0) {
+        return { kind: types_TernaryTreeKind.ternaryTreeLeaf, size: 1, value: item };
+    }
+    let result = insert(tree, listLen(tree) - 1, item, true);
+    if (!disableBalancing) {
+        maybeReblance(result);
+    }
+    return result;
+}
+function concat(...xsGroups) {
+    xsGroups = xsGroups.filter((xs) => listLen(xs) > 0);
+    if (xsGroups.length === 1) {
+        return xsGroups[0];
+    }
+    if (xsGroups.length === 2) {
+        return concat2(xsGroups[0], xsGroups[1]);
+    }
+    if (xsGroups.length === 3) {
+        return concat3(xsGroups[0], xsGroups[1], xsGroups[2]);
+    }
+    let result = makeTernaryTreeList(xsGroups.length, 0, xsGroups);
+    maybeReblance(result);
+    checkListStructure(result);
+    return result;
+}
+function concat2(left, middle) {
+    if (left.kind === types_TernaryTreeKind.ternaryTreeBranch) {
+        if (left.left != null && left.middle != null && left.right == null) {
+            let ret = {
+                size: left.size + middle.size,
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                depth: decideParentDepth(left.left, left.middle, middle),
+                left: left.left,
+                middle: left.middle,
+                right: middle,
+            };
+            return ret;
+        }
+    }
+    if (middle.kind === types_TernaryTreeKind.ternaryTreeBranch) {
+        if (middle.left != null && middle.middle != null && middle.right == null) {
+            let ret = {
+                size: left.size + middle.size,
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                depth: decideParentDepth(left, middle.left, middle.middle),
+                left: left,
+                middle: middle.left,
+                right: middle.middle,
+            };
+            return ret;
+        }
+    }
+    let ret = {
+        size: left.size + middle.size,
+        kind: types_TernaryTreeKind.ternaryTreeBranch,
+        depth: decideParentDepth(left, middle),
+        left: left,
+        middle: middle,
+        right: list_emptyBranch,
+    };
+    checkListStructure(ret);
+    return ret;
+}
+function concat3(left, middle, right) {
+    let ret = {
+        size: left.size + middle.size + right.size,
+        kind: types_TernaryTreeKind.ternaryTreeBranch,
+        depth: decideParentDepth(left, middle, right),
+        left,
+        middle,
+        right,
+    };
+    checkListStructure(ret);
+    return ret;
+}
+function sameListShape(xs, ys) {
+    if (xs == null) {
+        if (ys == null) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+    if (ys == null) {
+        return false;
+    }
+    if (listLen(xs) !== listLen(ys)) {
+        return false;
+    }
+    if (xs.kind !== ys.kind) {
+        return false;
+    }
+    if (xs.kind === TernaryTreeKind.ternaryTreeLeaf && ys.kind === TernaryTreeKind.ternaryTreeLeaf) {
+        if (!dataEqual(xs.value, ys.value)) {
+            return false;
+        }
+        else {
+            return true;
+        }
+    }
+    if (xs.kind === TernaryTreeKind.ternaryTreeBranch && ys.kind === TernaryTreeKind.ternaryTreeBranch) {
+        if (!sameListShape(xs.left, ys.left))
+            return false;
+        if (!sameListShape(xs.middle, ys.middle))
+            return false;
+        if (!sameListShape(xs.right, ys.right))
+            return false;
+        return true;
+    }
+    return false;
+}
+function listEqual(xs, ys) {
+    if (xs === ys) {
+        return true;
+    }
+    if (listLen(xs) !== listLen(ys)) {
+        return false;
+    }
+    for (let idx = 0; idx < listLen(xs); idx++) {
+        if (!dataEqual(listGet(xs, idx), listGet(ys, idx))) {
+            return false;
+        }
+    }
+    return true;
+}
+var skipListStructureCheck = false;
+/** in some cases we disable for performance */
+let disableListStructureCheck = () => {
+    skipListStructureCheck = true;
+};
+function checkListStructure(tree) {
+    if (skipListStructureCheck) {
+        return true;
+    }
+    if (tree == null || listLen(tree) === 0) {
+        return true;
+    }
+    else {
+        switch (tree.kind) {
+            case types_TernaryTreeKind.ternaryTreeLeaf:
+                if (tree.size !== 1) {
+                    throw new Error(`Bad size at node ${formatListInline(tree)}`);
+                }
+                break;
+            case types_TernaryTreeKind.ternaryTreeBranch: {
+                if (tree.size >= 6 && tree.depth >= tree.size) {
+                    throw new Error(`Bad depth at branch ${formatListInline(tree)}`);
+                }
+                if (tree.size !== listLen(tree.left) + listLen(tree.middle) + listLen(tree.right)) {
+                    throw new Error(`Bad size at branch ${formatListInline(tree)}`);
+                }
+                if (tree.left == null && tree.middle != null) {
+                    throw new Error("morformed tree");
+                }
+                if (tree.middle == null && tree.right != null) {
+                    throw new Error("morformed tree");
+                }
+                if (tree.depth !== decideParentDepth(tree.left, tree.middle, tree.right)) {
+                    let x = decideParentDepth(tree.left, tree.middle, tree.right);
+                    throw new Error(`Bad depth at branch ${formatListInline(tree)}`);
+                }
+                checkListStructure(tree.left);
+                checkListStructure(tree.middle);
+                checkListStructure(tree.right);
+                break;
+            }
+        }
+        return true;
+    }
+}
+// excludes value at endIdx, kept aligned with JS & Clojure
+function slice(tree, startIdx, endIdx) {
+    // echo "slice {tree.formatListInline}: {startIdx}..{endIdx}"
+    if (endIdx > listLen(tree)) {
+        throw new Error("Slice range too large {endIdx} for {tree}");
+    }
+    if (startIdx < 0) {
+        throw new Error("Slice range too small {startIdx} for {tree}");
+    }
+    if (startIdx > endIdx) {
+        throw new Error("Invalid slice range {startIdx}..{endIdx} for {tree}");
+    }
+    if (startIdx === endIdx) {
+        return { kind: types_TernaryTreeKind.ternaryTreeBranch, size: 0, depth: 0 };
+    }
+    if (tree.kind === types_TernaryTreeKind.ternaryTreeLeaf)
+        if (startIdx === 0 && endIdx === 1) {
+            return tree;
+        }
+        else {
+            throw new Error(`Invalid slice range for a leaf: ${startIdx} ${endIdx}`);
+        }
+    if (startIdx === 0 && endIdx === listLen(tree)) {
+        return tree;
+    }
+    let leftSize = listLen(tree.left);
+    let middleSize = listLen(tree.middle);
+    let rightSize = listLen(tree.right);
+    // echo "sizes: {leftSize} {middleSize} {rightSize}"
+    if (startIdx >= leftSize + middleSize) {
+        return slice(tree.right, startIdx - leftSize - middleSize, endIdx - leftSize - middleSize);
+    }
+    if (startIdx >= leftSize)
+        if (endIdx <= leftSize + middleSize) {
+            return slice(tree.middle, startIdx - leftSize, endIdx - leftSize);
+        }
+        else {
+            let middleCut = slice(tree.middle, startIdx - leftSize, middleSize);
+            let rightCut = slice(tree.right, 0, endIdx - leftSize - middleSize);
+            return concat(middleCut, rightCut);
+        }
+    if (endIdx <= leftSize) {
+        return slice(tree.left, startIdx, endIdx);
+    }
+    if (endIdx <= leftSize + middleSize) {
+        let leftCut = slice(tree.left, startIdx, leftSize);
+        let middleCut = slice(tree.middle, 0, endIdx - leftSize);
+        return concat(leftCut, middleCut);
+    }
+    if (endIdx <= leftSize + middleSize + rightSize) {
+        let leftCut = slice(tree.left, startIdx, leftSize);
+        let rightCut = slice(tree.right, 0, endIdx - leftSize - middleSize);
+        return concat(concat(leftCut, tree.middle), rightCut);
+    }
+    throw new Error("Unknown");
+}
+function reverse(tree) {
+    if (tree == null) {
+        return tree;
+    }
+    switch (tree.kind) {
+        case types_TernaryTreeKind.ternaryTreeLeaf:
+            return tree;
+        case types_TernaryTreeKind.ternaryTreeBranch: {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: tree.size,
+                depth: tree.depth,
+                left: reverse(tree.right),
+                middle: reverse(tree.middle),
+                right: reverse(tree.left),
+            };
+            if (result.left == null) {
+                result.left = result.middle;
+                result.middle = result.right;
+                result.right = undefined;
+            }
+            return result;
+        }
+    }
+}
+function listMapValues(tree, f) {
+    if (tree == null) {
+        return tree;
+    }
+    switch (tree.kind) {
+        case types_TernaryTreeKind.ternaryTreeLeaf: {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeLeaf,
+                size: tree.size,
+                value: f(tree.value),
+            };
+            return result;
+        }
+        case types_TernaryTreeKind.ternaryTreeBranch: {
+            let result = {
+                kind: types_TernaryTreeKind.ternaryTreeBranch,
+                size: tree.size,
+                depth: tree.depth,
+                left: tree.left == null ? list_emptyBranch : listMapValues(tree.left, f),
+                middle: tree.middle == null ? list_emptyBranch : listMapValues(tree.middle, f),
+                right: tree.right == null ? list_emptyBranch : listMapValues(tree.right, f),
+            };
+            return result;
+        }
+    }
+}
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/ternary-tree/lib/index.mjs
+
+
+
+
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/js-set.mjs
+
+
+
+
+
+/** need to compare by Calcit */
+let DATA_EQUAL = (x, y) => {
+    return x === y;
+};
+let overwriteSetComparator = (f) => {
+    DATA_EQUAL = f;
+};
+class CalcitSet {
+    constructor(value) {
+        this.cachedHash = null;
+        if (Array.isArray(value)) {
+            let pairs = [];
+            outer: for (let idx = 0; idx < value.length; idx++) {
+                for (let j = 0; j < pairs.length; j++) {
+                    if (DATA_EQUAL(pairs[j][0], value[idx])) {
+                        // skip existed elements
+                        continue outer;
+                    }
+                }
+                pairs.push([value[idx], true]);
+            }
+            this.value = initTernaryTreeMapFromArray(pairs);
+        }
+        else {
+            this.value = value;
+        }
+    }
+    len() {
+        return mapLen(this.value);
+    }
+    contains(y) {
+        return contains(this.value, y);
+    }
+    include(y) {
+        var result = this.value;
+        result = assocMap(result, y, true);
+        return new CalcitSet(result);
+    }
+    exclude(y) {
+        var result = this.value;
+        result = dissocMap(result, y);
+        return new CalcitSet(result);
+    }
+    difference(ys) {
+        let result = this.value;
+        for (let k of toKeys(ys.value)) {
+            result = dissocMap(result, k);
+        }
+        return new CalcitSet(result);
+    }
+    union(ys) {
+        let result = this.value;
+        for (let k of toKeys(ys.value)) {
+            result = assocMap(result, k, true);
+        }
+        return new CalcitSet(result);
+    }
+    intersection(ys) {
+        let result = initEmptyTernaryTreeMap();
+        for (let k of toKeys(this.value)) {
+            if (ys.contains(k)) {
+                result = assocMap(result, k, true);
+            }
+        }
+        return new CalcitSet(result);
+    }
+    destruct() {
+        if (mapLen(this.value) === 0) {
+            return null;
+        }
+        // rather suspicious solution since set has no logical order
+        let x0 = toPairsArray(this.value)[0][0];
+        let result = dissocMap(this.value, x0);
+        return new CalcitSliceList([x0, new CalcitSet(result)]);
+    }
+    toString(disableJsDataWarning = false) {
+        let itemsCode = "";
+        for (let k of toKeys(this.value)) {
+            itemsCode = `${itemsCode} ${calcit_data_toString(k, true, disableJsDataWarning)}`;
+        }
+        return `(#{}${itemsCode})`;
+    }
+    values() {
+        return [...toKeys(this.value)];
+    }
+    nestedDataInChildren() {
+        for (let k of toKeys(this.value)) {
+            if (!isLiteral(k)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/js-record.mjs
+
+
+class CalcitRecord {
+    constructor(name, fields, values, klass) {
+        this.name = name;
+        let fieldNames = fields.map(castTag);
+        this.fields = fields;
+        if (values != null) {
+            if (values.length !== fields.length) {
+                throw new Error("fields/values length not match");
+            }
+            this.values = values;
+        }
+        else {
+            this.values = new Array(fieldNames.length);
+        }
+        this.cachedHash = null;
+        this.klass = klass;
+    }
+    get(k) {
+        let field = castTag(k);
+        let idx = findInFields(this.fields, field);
+        if (idx >= 0) {
+            return this.values[idx];
+        }
+        else {
+            throw new Error(`Cannot find :${field} among (${this.fields.join(",")})`);
+        }
+    }
+    getOrNil(k) {
+        let field = castTag(k);
+        let idx = findInFields(this.fields, field);
+        if (idx >= 0) {
+            return this.values[idx];
+        }
+        else {
+            return undefined;
+        }
+    }
+    assoc(k, v) {
+        let values = new Array(this.fields.length);
+        let k_id = castTag(k);
+        for (let idx = 0; idx < this.fields.length; idx++) {
+            if (this.fields[idx] === k_id) {
+                values[idx] = v;
+            }
+            else {
+                values[idx] = this.values[idx];
+            }
+        }
+        return new CalcitRecord(this.name, this.fields, values, this.klass);
+    }
+    /** return -1 for missing */
+    findIndex(k) {
+        let field = castTag(k);
+        let idx = findInFields(this.fields, field);
+        return idx;
+    }
+    contains(k) {
+        let idx = this.findIndex(k);
+        return idx >= 0;
+    }
+    toString(disableJsDataWarning = false) {
+        let ret = "(%{} " + this.name;
+        for (let idx = 0; idx < this.fields.length; idx++) {
+            ret += " (" + this.fields[idx] + " " + calcit_data_toString(this.values[idx], true, disableJsDataWarning) + ")";
+        }
+        return ret + ")";
+    }
+    withClass(klass) {
+        if (klass instanceof CalcitRecord) {
+            return new CalcitRecord(this.name, this.fields, this.values, klass);
+        }
+        else {
+            throw new Error("Expected a record");
+        }
+    }
+}
+let new_record = (name, ...fields) => {
+    let fieldNames = fields.map(castTag).sort((x, y) => {
+        if (x.idx < y.idx) {
+            return -1;
+        }
+        else if (x.idx > y.idx) {
+            return 1;
+        }
+        else {
+            throw new Error(`Unexpected duplication in record fields: ${x.toString()}`);
+        }
+    });
+    return new CalcitRecord(castTag(name), fieldNames);
+};
+let new_class_record = (klass, name, ...fields) => {
+    let fieldNames = fields.map(castTag).sort((x, y) => {
+        if (x.idx < y.idx) {
+            return -1;
+        }
+        else if (x.idx > y.idx) {
+            return 1;
+        }
+        else {
+            throw new Error(`Unexpected duplication in record fields: ${x.toString()}`);
+        }
+    });
+    return new CalcitRecord(castTag(name), fieldNames, undefined, klass);
+};
+let fieldsEqual = (xs, ys) => {
+    if (xs === ys) {
+        return true; // special case, referential equal
+    }
+    if (xs.length !== ys.length) {
+        return false;
+    }
+    for (let idx = 0; idx < xs.length; idx++) {
+        if (xs[idx] !== ys[idx]) {
+            return false;
+        }
+    }
+    return true;
+};
+let _$n__PCT__$M_ = (proto, ...xs) => {
+    if (proto instanceof CalcitRecord) {
+        if (xs.length % 2 !== 0) {
+            throw new Error("Expected even number of key/value");
+        }
+        if (xs.length !== proto.fields.length * 2) {
+            throw new Error("fields size does not match");
+        }
+        let values = new Array(proto.fields.length);
+        for (let i = 0; i < proto.fields.length; i++) {
+            let idx = -1;
+            let k = proto.fields[i];
+            for (let j = 0; j < proto.fields.length; j++) {
+                if (k === castTag(xs[j * 2])) {
+                    idx = j;
+                    break;
+                }
+            }
+            if (idx < 0) {
+                throw new Error("invalid field name for this record");
+            }
+            if (values[i] != null) {
+                throw new Error("record field already has value, probably duplicated key");
+            }
+            values[i] = xs[idx * 2 + 1];
+        }
+        return new CalcitRecord(proto.name, proto.fields, values, proto.klass);
+    }
+    else {
+        throw new Error("Expected prototype to be a record");
+    }
+};
+/// update record with new values
+let _$n_record_$o_with = (proto, ...xs) => {
+    if (proto instanceof CalcitRecord) {
+        if (xs.length % 2 !== 0) {
+            throw new Error("Expected even number of key/value");
+        }
+        let values = proto.values.slice();
+        for (let i = 0; i < xs.length; i += 2) {
+            let k = castTag(xs[i]);
+            let v = xs[i + 1];
+            let idx = findInFields(proto.fields, k);
+            if (idx < 0) {
+                throw new Error(`Cannot find field ${k} among ${proto.fields}`);
+            }
+            values[idx] = v;
+        }
+        return new CalcitRecord(proto.name, proto.fields, values, proto.klass);
+    }
+    else {
+        throw new Error("Expected prototype to be a record");
+    }
+};
+let _$n_record_$o_get_name = (x) => {
+    if (x instanceof CalcitRecord) {
+        return x.name;
+    }
+    else {
+        throw new Error("Expected a record");
+    }
+};
+let _$n_record_$o_from_map = (proto, data) => {
+    if (!(proto instanceof CalcitRecord))
+        throw new Error("Expected prototype to be record");
+    if (data instanceof CalcitRecord) {
+        if (fieldsEqual(proto.fields, data.fields)) {
+            return new CalcitRecord(proto.name, proto.fields, data.values);
+        }
+        else {
+            let values = [];
+            for (let i = 0; i < proto.fields.length; i++) {
+                let field = proto.fields[i];
+                let idx = findInFields(data.fields, field);
+                if (idx < 0) {
+                    throw new Error(`Cannot find field ${field} among ${data.fields}`);
+                }
+                values.push(data.values[idx]);
+            }
+            return new CalcitRecord(proto.name, proto.fields, values);
+        }
+    }
+    else if (data instanceof CalcitMap || data instanceof CalcitSliceMap) {
+        let pairs_buffer = [];
+        let pairs = data.pairs();
+        for (let i = 0; i < pairs.length; i++) {
+            let k = pairs[i][0];
+            let v = pairs[i][1];
+            pairs_buffer.push([castTag(k), v]);
+        }
+        // mutable sort
+        pairs_buffer.sort((pair1, pair2) => pair1[0].cmp(pair2[0]));
+        let values = [];
+        outerLoop: for (let i = 0; i < proto.fields.length; i++) {
+            let field = proto.fields[i];
+            for (let idx = 0; idx < pairs_buffer.length; idx++) {
+                let pair = pairs_buffer[idx];
+                if (pair[0] === field) {
+                    values.push(pair[1]);
+                    continue outerLoop; // dirty code for performance
+                }
+            }
+            throw new Error(`Cannot find field ${field} among ${pairs_buffer}`);
+        }
+        return new CalcitRecord(proto.name, proto.fields, values);
+    }
+    else {
+        throw new Error("Expected record or data for making a record");
+    }
+};
+let _$n_record_$o_to_map = (x) => {
+    if (x instanceof CalcitRecord) {
+        var dict = [];
+        for (let idx = 0; idx < x.fields.length; idx++) {
+            dict.push(x.fields[idx], x.values[idx]);
+        }
+        return new CalcitSliceMap(dict);
+    }
+    else {
+        throw new Error("Expected record");
+    }
+};
+let _$n_record_$o_matches_$q_ = (x, y) => {
+    if (!(x instanceof CalcitRecord)) {
+        throw new Error("Expected first argument to be record");
+    }
+    if (!(y instanceof CalcitRecord)) {
+        throw new Error("Expected second argument to be record");
+    }
+    if (x.name !== y.name) {
+        return false;
+    }
+    return fieldsEqual(x.fields, y.fields);
+};
+function _$n_record_$o_extend_as(obj, new_name, new_key, new_value) {
+    if (arguments.length !== 4)
+        throw new Error(`Expected 4 arguments, got ${arguments.length}`);
+    if (!(obj instanceof CalcitRecord))
+        throw new Error("Expected record");
+    let field = castTag(new_key);
+    let new_name_tag = castTag(new_name);
+    let new_fields = [];
+    let new_values = [];
+    let inserted = false;
+    for (let i = 0; i < new_fields.length; i++) {
+        let k = new_fields[i];
+        if (inserted) {
+            new_fields.push(k);
+            new_values.push(obj.values[i]);
+        }
+        else {
+            let ordering = field.cmp(k);
+            if (ordering === -1) {
+                new_fields.push(field);
+                new_values.push(new_value);
+                new_fields.push(k);
+                new_values.push(obj.values[i]);
+            }
+            else if (ordering === 1) {
+                new_fields.push(k);
+                new_values.push(obj.values[i]);
+            }
+            else {
+                throw new Error("Does not extend existed record field");
+            }
+        }
+    }
+    if (!inserted) {
+        new_fields.push(field);
+        new_values.push(new_value);
+    }
+    return new CalcitRecord(new_name_tag, new_fields, new_values);
+}
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/js-tuple.mjs
+
+
+class CalcitTuple {
+    constructor(tagName, extra, klass) {
+        this.tag = tagName;
+        this.extra = extra;
+        this.klass = klass;
+        this.cachedHash = null;
+    }
+    get(n) {
+        if (n === 0) {
+            return this.tag;
+        }
+        else if (n - 1 < this.extra.length) {
+            return this.extra[n - 1];
+        }
+        else {
+            throw new Error("Tuple only have 2 elements");
+        }
+    }
+    assoc(n, v) {
+        if (n === 0) {
+            return new CalcitTuple(v, this.extra, this.klass);
+        }
+        else if (n - 1 < this.extra.length) {
+            let next_extra = this.extra.slice();
+            next_extra[n - 1] = v;
+            return new CalcitTuple(this.tag, next_extra, this.klass);
+        }
+        else {
+            throw new Error(`Tuple only have ${this.extra.length} elements`);
+        }
+    }
+    count() {
+        return 1 + this.extra.length;
+    }
+    eq(y) {
+        if (!_$n__$e_(this.tag, y.tag)) {
+            return false;
+        }
+        if (this.extra.length !== y.extra.length) {
+            return false;
+        }
+        for (let idx = 0; idx < this.extra.length; idx++) {
+            if (!_$n__$e_(this.extra[idx], y.extra[idx])) {
+                return false;
+            }
+        }
+        return true;
+    }
+    toString(disableJsDataWarning = false) {
+        let args = [this.tag, ...this.extra];
+        let content = "";
+        for (let i = 0; i < args.length; i++) {
+            if (i > 0) {
+                content += " ";
+            }
+            content += calcit_data_toString(args[i], true, disableJsDataWarning);
+        }
+        if (this.klass instanceof CalcitRecord) {
+            return `(%:: ${content} (:class ${this.klass.name.value}))`;
+        }
+        else {
+            return `(:: ${content})`;
+        }
+    }
+}
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/js-list.mjs
+
+
+
+
+
+
+
+// two list implementations, should offer same interface
+class CalcitList {
+    constructor(value) {
+        this.cachedHash = null;
+        if (value == null) {
+            this.value = initTernaryTreeList([]);
+        }
+        else {
+            this.value = value;
+        }
+    }
+    len() {
+        return listLen(this.value);
+    }
+    get(idx) {
+        if (this.len() === 0) {
+            return null;
+        }
+        return listGet(this.value, idx);
+    }
+    assoc(idx, v) {
+        return new CalcitList(assocList(this.value, idx, v));
+    }
+    assocBefore(idx, v) {
+        return new CalcitList(assocBefore(this.value, idx, v));
+    }
+    assocAfter(idx, v) {
+        return new CalcitList(assocAfter(this.value, idx, v));
+    }
+    dissoc(idx) {
+        return new CalcitList(dissocList(this.value, idx));
+    }
+    slice(from, to) {
+        return new CalcitList(slice(this.value, from, to));
+    }
+    toString(shorter = false, disableJsDataWarning = false) {
+        let result = "";
+        for (let item of this.items()) {
+            if (shorter && isNestedCalcitData(item)) {
+                result = `${result} ${tipNestedCalcitData(item)}`;
+            }
+            else {
+                result = `${result} ${calcit_data_toString(item, true, disableJsDataWarning)}`;
+            }
+        }
+        return `([]${result})`;
+    }
+    isEmpty() {
+        return this.len() === 0;
+    }
+    /** usage: `for of` */
+    items() {
+        return listToItems(this.value);
+    }
+    append(v) {
+        return new CalcitList(append(this.value, v));
+    }
+    prepend(v) {
+        return new CalcitList(prepend(this.value, v));
+    }
+    first() {
+        return first(this.value);
+    }
+    rest() {
+        return new CalcitList(rest(this.value));
+    }
+    concat(ys) {
+        if (ys instanceof CalcitSliceList) {
+            return new CalcitList(concat(this.value, ys.turnListMode().value));
+        }
+        else if (ys instanceof CalcitList) {
+            return new CalcitList(concat(this.value, ys.value));
+        }
+        else {
+            throw new Error(`Unknown data to concat: ${ys}`);
+        }
+    }
+    map(f) {
+        return new CalcitList(listMapValues(this.value, f));
+    }
+    toArray() {
+        return [...listToItems(this.value)];
+    }
+    reverse() {
+        return new CalcitList(reverse(this.value));
+    }
+    nestedDataInChildren() {
+        let size = this.len();
+        for (let idx = 0; idx < size; idx++) {
+            if (!isLiteral(this.get(idx))) {
+                return true;
+            }
+        }
+    }
+}
+// represent append-only immutable list in Array slices
+class CalcitSliceList {
+    constructor(value) {
+        if (value == null) {
+            value = []; // dirty, better handled from outside
+        }
+        this.cachedHash = null;
+        this.value = value;
+        this.start = 0;
+        this.end = value.length;
+    }
+    turnListMode() {
+        if (this.cachedTreeListRef != null) {
+            return this.cachedTreeListRef;
+        }
+        let ret = new CalcitList(initTernaryTreeListFromRange(this.value, this.start, this.end));
+        this.cachedTreeListRef = ret;
+        return ret;
+    }
+    len() {
+        return this.end - this.start;
+    }
+    get(idx) {
+        if (idx >= 0 && this.start + idx < this.end) {
+            return this.value[this.start + idx];
+        }
+        return null;
+    }
+    assoc(idx, v) {
+        return this.turnListMode().assoc(idx, v);
+    }
+    assocBefore(idx, v) {
+        return this.turnListMode().assocBefore(idx, v);
+    }
+    assocAfter(idx, v) {
+        if (idx === this.len() - 1) {
+            return this.append(v);
+        }
+        else {
+            return this.turnListMode().assocAfter(idx, v);
+        }
+    }
+    dissoc(idx) {
+        if (idx === 0) {
+            return this.rest();
+        }
+        else if (idx === this.len() - 1) {
+            return this.slice(0, idx);
+        }
+        else {
+            return this.turnListMode().dissoc(idx);
+        }
+    }
+    slice(from, to) {
+        if (from < 0) {
+            throw new Error(`from index too small: ${from}`);
+        }
+        if (to > this.len()) {
+            throw new Error(`end index too large: ${to}`);
+        }
+        if (to < from) {
+            throw new Error("end index too small");
+        }
+        if (from === to) {
+            // when it's empty, just return empty list
+            return new CalcitSliceList([]);
+        }
+        let result = new CalcitSliceList(this.value);
+        result.start = this.start + from;
+        result.end = this.start + to;
+        return result;
+    }
+    toString(shorter = false, disableJsDataWarning = false) {
+        let result = "";
+        for (let item of this.items()) {
+            if (shorter && isNestedCalcitData(item)) {
+                result = `${result} ${tipNestedCalcitData(item)}`;
+            }
+            else {
+                result = `${result} ${calcit_data_toString(item, true, disableJsDataWarning)}`;
+            }
+        }
+        return `([]${result})`;
+    }
+    isEmpty() {
+        return this.len() === 0;
+    }
+    /** usage: `for of` */
+    items() {
+        return sliceGenerator(this.value, this.start, this.end);
+    }
+    append(v) {
+        if (this.end === this.value.length && this.start < 32) {
+            // dirty trick to reuse list memory, data storage actually appended at existing array
+            this.value.push(v);
+            let newList = new CalcitSliceList(this.value);
+            newList.start = this.start;
+            newList.end = this.end + 1;
+            return newList;
+        }
+        else {
+            return this.turnListMode().append(v);
+        }
+    }
+    prepend(v) {
+        return this.turnListMode().prepend(v);
+    }
+    first() {
+        if (this.value.length > this.start) {
+            return this.value[this.start];
+        }
+        else {
+            return null;
+        }
+    }
+    rest() {
+        return this.slice(1, this.end - this.start);
+    }
+    // TODO
+    concat(ys) {
+        if (ys instanceof CalcitSliceList) {
+            let size = this.end - this.start;
+            let otherSize = ys.end - ys.start;
+            let combined = new Array(size + otherSize);
+            for (let i = 0; i < size; i++) {
+                combined[i] = this.get(i);
+            }
+            for (let i = 0; i < otherSize; i++) {
+                combined[i + size] = ys.get(i);
+            }
+            return new CalcitSliceList(combined);
+        }
+        else if (ys instanceof CalcitList) {
+            return this.turnListMode().concat(ys);
+        }
+        else {
+            throw new Error("Expected list");
+        }
+    }
+    map(f) {
+        let ys = [];
+        for (let x in sliceGenerator(this.value, this.start, this.end)) {
+            ys.push(f(x));
+        }
+        return new CalcitSliceList(ys);
+    }
+    toArray() {
+        return this.value.slice(this.start, this.end);
+    }
+    reverse() {
+        return this.turnListMode().reverse();
+    }
+    nestedDataInChildren() {
+        let size = this.len();
+        for (let idx = 0; idx < size; idx++) {
+            if (!isLiteral(this.get(idx))) {
+                return true;
+            }
+        }
+    }
+}
+function* sliceGenerator(xs, start, end) {
+    if (xs == null) {
+        if (end <= start) {
+            throw new Error("invalid list to slice");
+        }
+    }
+    else {
+        for (let idx = start; idx < end; idx++) {
+            yield xs[idx];
+        }
+    }
+}
+let foldl = function (xs, acc, f) {
+    if (arguments.length !== 3) {
+        throw new Error("foldl takes 3 arguments");
+    }
+    if (f == null) {
+        throw new Error("Expected function for folding");
+    }
+    if (xs instanceof CalcitSliceList || xs instanceof CalcitList) {
+        var result = acc;
+        let size = xs.len();
+        for (let idx = 0; idx < size; idx++) {
+            let item = xs.get(idx);
+            result = f(result, item);
+        }
+        return result;
+    }
+    if (xs instanceof CalcitSet) {
+        let result = acc;
+        xs.values().forEach((item) => {
+            result = f(result, item);
+        });
+        return result;
+    }
+    if (xs instanceof CalcitSliceMap) {
+        let result = acc;
+        // low-level code for performance
+        let size = xs.chunk.length >> 1;
+        for (let i = 0; i < size; i++) {
+            let pos = i << 1;
+            result = f(result, new CalcitSliceList([xs.chunk[pos], xs.chunk[pos + 1]]));
+        }
+        return result;
+    }
+    if (xs instanceof CalcitMap) {
+        let result = acc;
+        xs.pairs().forEach((pair) => {
+            result = f(result, new CalcitSliceList(pair));
+        });
+        return result;
+    }
+    throw new Error("Unknow data for foldl");
+};
+let foldl_shortcut = function (xs, acc, v0, f) {
+    if (arguments.length !== 4) {
+        throw new Error("foldl-shortcut takes 4 arguments");
+    }
+    if (f == null) {
+        throw new Error("Expected function for folding");
+    }
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        var state = acc;
+        let size = xs.len();
+        for (let idx = 0; idx < size; idx++) {
+            let item = xs.get(idx);
+            let pair = f(state, item);
+            if (pair instanceof CalcitTuple) {
+                if (typeof pair.tag === "boolean") {
+                    if (pair.tag) {
+                        return pair.get(1);
+                    }
+                    else {
+                        state = pair.get(1);
+                    }
+                }
+            }
+            else {
+                throw new Error("Expected return value in `:: bool acc` structure");
+            }
+        }
+        return v0;
+    }
+    if (xs instanceof CalcitSet) {
+        let state = acc;
+        let values = xs.values();
+        for (let idx = 0; idx < values.length; idx++) {
+            let item = values[idx];
+            let pair = f(state, item);
+            if (pair instanceof CalcitTuple) {
+                if (typeof pair.tag === "boolean") {
+                    if (pair.tag) {
+                        return pair.get(1);
+                    }
+                    else {
+                        state = pair.get(1);
+                    }
+                }
+            }
+            else {
+                throw new Error("Expected return value in `:: bool acc` structure");
+            }
+        }
+        return v0;
+    }
+    if (xs instanceof CalcitSliceMap) {
+        let state = acc;
+        // low-level code for performance
+        let size = xs.chunk.length >> 1;
+        for (let i = 0; i < size; i++) {
+            let pos = i << 1;
+            let pair = f(state, new CalcitSliceList([xs.chunk[pos], xs.chunk[pos + 1]]));
+            if (pair instanceof CalcitTuple) {
+                if (typeof pair.tag === "boolean") {
+                    if (pair.tag) {
+                        return pair.get(1);
+                    }
+                    else {
+                        state = pair.get(1);
+                    }
+                }
+            }
+            else {
+                throw new Error("Expected return value in `:: bool acc` structure");
+            }
+        }
+        return v0;
+    }
+    if (xs instanceof CalcitMap) {
+        let state = acc;
+        let pairs = xs.pairs();
+        for (let idx = 0; idx < pairs.length; idx++) {
+            let item = pairs[idx];
+            let pair = f(state, new CalcitSliceList(item));
+            if (pair instanceof CalcitTuple) {
+                if (typeof pair.tag === "boolean") {
+                    if (pair.tag) {
+                        return pair.get(1);
+                    }
+                    else {
+                        state = pair.get(1);
+                    }
+                }
+            }
+            else {
+                throw new Error("Expected return value in `:: bool acc` structure");
+            }
+        }
+        return v0;
+    }
+    throw new Error("Unknow data for foldl-shortcut");
+};
+let foldr_shortcut = function (xs, acc, v0, f) {
+    if (arguments.length !== 4) {
+        throw new Error("foldr-shortcut takes 4 arguments");
+    }
+    if (f == null) {
+        throw new Error("Expected function for folding");
+    }
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        var state = acc;
+        // iterate from right
+        for (let idx = xs.len() - 1; idx >= 0; idx--) {
+            let item = xs.get(idx);
+            let pair = f(state, item);
+            if (pair instanceof CalcitTuple) {
+                if (typeof pair.tag === "boolean") {
+                    if (pair.tag) {
+                        return pair.get(1);
+                    }
+                    else {
+                        state = pair.get(1);
+                    }
+                }
+            }
+            else {
+                throw new Error("Expected return value in `:: bool acc` structure");
+            }
+        }
+        return v0;
+    }
+    throw new Error("Unknow data for foldr-shortcut, expected only list");
+};
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/js-cirru.mjs
+
+
+
+
+
+
+
+
+
+class CalcitCirruQuote {
+    constructor(value) {
+        if (value == null) {
+            throw new Error("cirru node cannot be null");
+        }
+        this.value = value;
+    }
+    toString() {
+        return `(&cirru-quote ${JSON.stringify(this.value)})`;
+    }
+    toList() {
+        return to_calcit_data(this.value, true);
+    }
+    nth(idx) {
+        if (Array.isArray(this.value)) {
+            if (idx < this.value.length) {
+                return new CalcitCirruQuote(this.value[idx]);
+            }
+            else {
+                throw new Error(`nth out of range: ${idx}`);
+            }
+        }
+        else {
+            throw new Error(`&cirru-nth does not read into a string: ${this.value}`);
+        }
+    }
+    /** provide a simple text representation in Console or std out, with indentations */
+    textForm() {
+        if (Array.isArray(this.value) && this.value.every((x) => Array.isArray(x))) {
+            return (0,writer/* writeCirruCode */.N)(this.value);
+        }
+        else {
+            return this.toString();
+        }
+    }
+}
+let format_cirru = (data, useInline) => {
+    if (data instanceof CalcitCirruQuote) {
+        return (0,writer/* writeCirruCode */.N)(data.value, { useInline });
+    }
+    let chunk = toWriterNode(data);
+    if (!Array.isArray(chunk)) {
+        throw new Error("Expected data of list");
+    }
+    for (let idx = 0; idx < chunk.length; idx++) {
+        let item = chunk[idx];
+        if (!Array.isArray(item)) {
+            throw new Error("Expected data in a list of lists");
+        }
+    }
+    return (0,writer/* writeCirruCode */.N)(chunk, { useInline });
+};
+/** better use string version of Cirru EDN in future */
+let to_cirru_edn = (x) => {
+    if (x == null) {
+        return "nil";
+    }
+    if (typeof x === "string") {
+        return `|${x}`;
+    }
+    if (typeof x === "number") {
+        return `${x}`;
+    }
+    if (typeof x === "boolean") {
+        return `${x}`;
+    }
+    if (x instanceof CalcitTag) {
+        return x.toString();
+    }
+    if (x instanceof CalcitSymbol) {
+        return x.toString();
+    }
+    if (x instanceof CalcitList || x instanceof CalcitSliceList) {
+        let ret = ["[]"];
+        let arr = x.toArray();
+        for (let idx = 0; idx < arr.length; idx++) {
+            ret.push(to_cirru_edn(arr[idx]));
+        }
+        return ret;
+    }
+    if (x instanceof CalcitCirruQuote) {
+        return ["quote", x.value];
+    }
+    if (x instanceof CalcitMap || x instanceof CalcitSliceMap) {
+        let buffer = ["{}"];
+        let pairs_buffer = [];
+        let pairs = x.pairs();
+        for (let idx = 0; idx < pairs.length; idx++) {
+            pairs_buffer.push(pairs[idx]);
+        }
+        pairs_buffer.sort((a, b) => {
+            let a0_literal = isLiteral(a[0]);
+            let a1_literal = isLiteral(a[1]);
+            let b0_literal = isLiteral(b[0]);
+            let b1_literal = isLiteral(b[1]);
+            if (a0_literal && b0_literal) {
+                if (a1_literal && !b1_literal) {
+                    return -1;
+                }
+                else if (!a1_literal && b1_literal) {
+                    return 1;
+                }
+                else {
+                    return _$n_compare(a[0], b[0]);
+                }
+            }
+            else if (a0_literal && !b0_literal) {
+                return -1;
+            }
+            else if (!a0_literal && b0_literal) {
+                return 1;
+            }
+            else {
+                return _$n_compare(a[0], b[0]);
+            }
+        });
+        for (let idx = 0; idx < pairs_buffer.length; idx++) {
+            let k = pairs_buffer[idx][0];
+            let v = pairs_buffer[idx][1];
+            buffer.push([to_cirru_edn(k), to_cirru_edn(v)]);
+        }
+        return buffer;
+    }
+    if (x instanceof CalcitRecord) {
+        let buffer = [];
+        for (let idx = 0; idx < x.fields.length; idx++) {
+            buffer.push([x.fields[idx].toString(), to_cirru_edn(x.values[idx])]);
+        }
+        // placed literals first
+        buffer.sort(recordFieldOrder);
+        buffer.unshift(x.name.toString());
+        buffer.unshift("%{}");
+        return buffer;
+    }
+    if (x instanceof CalcitSet) {
+        let buffer = ["#{}"];
+        let values = x.values();
+        values.sort((a, b) => {
+            return _$n_compare(a, b);
+        });
+        for (let idx = 0; idx < values.length; idx++) {
+            let y = values[idx];
+            buffer.push(to_cirru_edn(y));
+        }
+        return buffer;
+    }
+    if (x instanceof CalcitTuple) {
+        if (x.tag instanceof CalcitSymbol && x.tag.value === "quote") {
+            // turn `x.snd` with CalcitList into raw Cirru nodes, which is in plain Array
+            return ["quote", toWriterNode(x.get(1))];
+        }
+        else if (x.tag instanceof CalcitTag) {
+            return ["::", x.tag.toString(), ...x.extra.map(to_cirru_edn)];
+        }
+        else if (x.tag instanceof CalcitRecord) {
+            return ["::", x.tag.name.toString(), ...x.extra.map(to_cirru_edn)];
+        }
+        else {
+            throw new Error(`Unsupported tag for EDN: ${x.tag}`);
+        }
+    }
+    console.error(x);
+    throw new Error("Unexpected data to to-cirru-edn");
+};
+let recordFieldOrder = (a, b) => {
+    let a1_literal = isLiteral(a[1]);
+    let b1_literal = isLiteral(b[1]);
+    if (a1_literal && !b1_literal) {
+        return -1;
+    }
+    else if (!a1_literal && b1_literal) {
+        return 1;
+    }
+    else {
+        return _$n_compare(a[0], b[0]);
+    }
+};
+/** makes sure we got string */
+let extractFieldTag = (x) => {
+    if (x[0] === ":") {
+        return newTag(x.slice(1));
+    }
+    else {
+        return newTag(x);
+    }
+};
+let extract_cirru_edn = (x, options) => {
+    if (typeof x === "string") {
+        if (x === "nil") {
+            return null;
+        }
+        if (x === "true") {
+            return true;
+        }
+        if (x === "false") {
+            return false;
+        }
+        if (x === "") {
+            throw new Error("cannot be empty");
+        }
+        if (x[0] === "|" || x[0] === '"') {
+            return x.slice(1);
+        }
+        if (x[0] === ":") {
+            return newTag(x.slice(1));
+        }
+        if (x[0] === "'") {
+            return new CalcitSymbol(x.slice(1));
+        }
+        if (x.match(/^(-?)\d+(\.\d*$)?/)) {
+            return parseFloat(x);
+        }
+        // strict behavior as Rust semantics
+        throw new Error("unknown syntax for EDN");
+    }
+    if (x instanceof Array) {
+        if (x.length === 0) {
+            throw new Error("Cannot be empty");
+        }
+        if (x[0] === "{}") {
+            let result = [];
+            x.forEach((pair, idx) => {
+                if (idx === 0) {
+                    return; // skip first `{}` symbol
+                }
+                if (pair instanceof Array) {
+                    if (pair[0] === ";")
+                        return;
+                    if (pair.length === 2) {
+                        result.push(extract_cirru_edn(pair[0], options), extract_cirru_edn(pair[1], options));
+                    }
+                    else {
+                        throw new Error(`Expected a pair, got size ${pair.length}`);
+                    }
+                }
+                else {
+                    throw new Error(`Expected pairs for map, got ${pair}`);
+                }
+            });
+            return new CalcitSliceMap(result);
+        }
+        if (x[0] === "%{}") {
+            let name = x[1];
+            if (typeof name != "string") {
+                throw new Error("Expected string for record name");
+            }
+            // put to entries first, sort and then...
+            let entries = [];
+            x.forEach((pair, idx) => {
+                if (idx <= 1) {
+                    return; // skip %{} name
+                }
+                if (pair instanceof Array) {
+                    if (pair[0] === ";")
+                        return;
+                    if (pair.length === 2) {
+                        if (typeof pair[0] === "string") {
+                            entries.push([extractFieldTag(pair[0]), extract_cirru_edn(pair[1], options)]);
+                        }
+                        else {
+                            throw new Error("Expected string as field");
+                        }
+                    }
+                    else {
+                        throw new Error("Expected pair of size 2");
+                    }
+                }
+                else {
+                    throw new Error("Expected pairs for reocrd");
+                }
+            });
+            entries.sort((a, b) => {
+                return a[0].cmp(b[0]);
+            });
+            let fields = [];
+            let values = [];
+            for (let idx = 0; idx < entries.length; idx++) {
+                fields.push(entries[idx][0]);
+                values.push(entries[idx][1]);
+            }
+            if (options instanceof CalcitMap || options instanceof CalcitSliceMap) {
+                let v = options.get(extractFieldTag(name));
+                if (v != null && v instanceof CalcitRecord) {
+                    if (!deepEqual(v.fields, fields)) {
+                        throw new Error(`Fields mismatch for ${name}, expected ${fields}, got ${v.fields}`);
+                    }
+                    return new CalcitRecord(extractFieldTag(name), fields, values, v.klass);
+                }
+            }
+            return new CalcitRecord(extractFieldTag(name), fields, values);
+        }
+        let notComment = (x) => {
+            if (x instanceof Array && x[0] === ";") {
+                return false;
+            }
+            return true;
+        };
+        if (x[0] === "[]") {
+            return new CalcitSliceList(x
+                .slice(1)
+                .filter(notComment)
+                .map((x) => extract_cirru_edn(x, options)));
+        }
+        if (x[0] === "#{}") {
+            return new CalcitSet(x
+                .slice(1)
+                .filter(notComment)
+                .map((x) => extract_cirru_edn(x, options)));
+        }
+        if (x[0] === "do" && x.length === 2) {
+            return extract_cirru_edn(x[1], options);
+        }
+        if (x[0] === "quote") {
+            if (x.length !== 2) {
+                throw new Error("quote expects 1 argument");
+            }
+            return new CalcitCirruQuote(x[1]);
+        }
+        if (x[0] === "::") {
+            if (x.length < 2) {
+                throw new Error("tuple expects at least 1 value1");
+            }
+            return new CalcitTuple(extract_cirru_edn(x[1], options), x
+                .slice(2)
+                .filter(notComment)
+                .map((x) => extract_cirru_edn(x, options)), undefined);
+        }
+    }
+    console.error(x);
+    throw new Error("Unexpected data from cirru-edn");
+};
+let format_cirru_edn = (data, useInline = true) => {
+    if (data == null) {
+        return "\ndo nil" + "\n";
+    }
+    if (typeof data === "string") {
+        return "\ndo " + to_cirru_edn(data) + "\n";
+    }
+    if (typeof data === "boolean") {
+        return "\ndo " + to_cirru_edn(data) + "\n";
+    }
+    if (typeof data === "string") {
+        return "\ndo " + to_cirru_edn(data) + "\n";
+    }
+    if (data instanceof CalcitSymbol) {
+        return "\ndo " + to_cirru_edn(data) + "\n";
+    }
+    if (data instanceof CalcitTag) {
+        return "\ndo " + to_cirru_edn(data) + "\n";
+    }
+    return (0,writer/* writeCirruCode */.N)([to_cirru_edn(data)], { useInline: useInline });
+};
+let to_calcit_data = (x, noKeyword = false) => {
+    if (x == null)
+        return null;
+    if (typeof x === "number")
+        return x;
+    if (typeof x === "string") {
+        if (!noKeyword && x[0] === ":" && x.slice(1).match(/^[\w\d_\?\!\-]+$/)) {
+            return newTag(x.slice(1));
+        }
+        return x;
+    }
+    if (x === true || x === false)
+        return x;
+    if (typeof x === "function")
+        return x;
+    if (Array.isArray(x)) {
+        var result = [];
+        x.forEach((v) => {
+            result.push(to_calcit_data(v, noKeyword));
+        });
+        return new CalcitSliceList(result);
+    }
+    if (x instanceof Set) {
+        let result = [];
+        x.forEach((v) => {
+            result.push(to_calcit_data(v, noKeyword));
+        });
+        return new CalcitSet(result);
+    }
+    if (x instanceof CalcitList || x instanceof CalcitSliceList)
+        return x;
+    if (x instanceof CalcitMap || x instanceof CalcitSliceMap)
+        return x;
+    if (x instanceof CalcitSet)
+        return x;
+    if (x instanceof CalcitRecord)
+        return x;
+    if (x instanceof CalcitRecur)
+        return x;
+    if (x instanceof CalcitRef)
+        return x;
+    if (x instanceof CalcitTag)
+        return x;
+    if (x instanceof CalcitSymbol)
+        return x;
+    if (x instanceof CalcitTuple)
+        return x;
+    // detects object
+    if (x === Object(x)) {
+        let result = [];
+        Object.keys(x).forEach((k) => {
+            result.push(to_calcit_data(k, noKeyword), to_calcit_data(x[k], noKeyword));
+        });
+        return new CalcitSliceMap(result);
+    }
+    console.error("Unexpected data for converting", x);
+    return null;
+};
+let toWriterNode = (xs) => {
+    if (typeof xs === "string") {
+        return xs;
+    }
+    else if (Array.isArray(xs)) {
+        return xs.map(toWriterNode);
+    }
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        return xs.toArray().map(toWriterNode);
+    }
+    else {
+        throw new Error("Unexpected type for CirruWriteNode");
+    }
+};
+/** deep compare cirru array */
+let cirru_deep_equal = (x, y) => {
+    if (x === y) {
+        return true;
+    }
+    else if (Array.isArray(x) && Array.isArray(y)) {
+        if (x.length !== y.length) {
+            return false;
+        }
+        for (let idx = 0; idx < x.length; idx++) {
+            if (!cirru_deep_equal(x[idx], y[idx])) {
+                return false;
+            }
+        }
+        return true;
+    }
+    else {
+        return false;
+    }
+};
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/js-primes.mjs
+
+
+
+
+
+
+
+let isLiteral = (x) => {
+    if (x == null)
+        return true;
+    if (typeof x == "string")
+        return true;
+    if (typeof x == "boolean")
+        return true;
+    if (typeof x == "number")
+        return true;
+    if (x instanceof CalcitTag)
+        return true;
+    if (x instanceof CalcitSymbol)
+        return true;
+    return false;
+};
+var PseudoTypeIndex;
+(function (PseudoTypeIndex) {
+    PseudoTypeIndex[PseudoTypeIndex["nil"] = 0] = "nil";
+    PseudoTypeIndex[PseudoTypeIndex["bool"] = 1] = "bool";
+    PseudoTypeIndex[PseudoTypeIndex["number"] = 2] = "number";
+    PseudoTypeIndex[PseudoTypeIndex["symbol"] = 3] = "symbol";
+    PseudoTypeIndex[PseudoTypeIndex["tag"] = 4] = "tag";
+    PseudoTypeIndex[PseudoTypeIndex["string"] = 5] = "string";
+    PseudoTypeIndex[PseudoTypeIndex["ref"] = 6] = "ref";
+    PseudoTypeIndex[PseudoTypeIndex["tuple"] = 7] = "tuple";
+    PseudoTypeIndex[PseudoTypeIndex["recur"] = 8] = "recur";
+    PseudoTypeIndex[PseudoTypeIndex["list"] = 9] = "list";
+    PseudoTypeIndex[PseudoTypeIndex["set"] = 10] = "set";
+    PseudoTypeIndex[PseudoTypeIndex["map"] = 11] = "map";
+    PseudoTypeIndex[PseudoTypeIndex["record"] = 12] = "record";
+    PseudoTypeIndex[PseudoTypeIndex["fn"] = 13] = "fn";
+    PseudoTypeIndex[PseudoTypeIndex["cirru_quote"] = 14] = "cirru_quote";
+})(PseudoTypeIndex || (PseudoTypeIndex = {}));
+let typeAsInt = (x) => {
+    // based on order used in Ord traint
+    if (x == null)
+        return PseudoTypeIndex.nil;
+    let t = typeof x;
+    if (t === "boolean")
+        return PseudoTypeIndex.bool;
+    if (t === "number")
+        return PseudoTypeIndex.number;
+    if (x instanceof CalcitSymbol)
+        return PseudoTypeIndex.symbol;
+    if (x instanceof CalcitTag)
+        return PseudoTypeIndex.tag;
+    if (t === "string")
+        return PseudoTypeIndex.string;
+    if (x instanceof CalcitRef)
+        return PseudoTypeIndex.ref;
+    if (x instanceof CalcitTuple)
+        return PseudoTypeIndex.tuple;
+    if (x instanceof CalcitRecur)
+        return PseudoTypeIndex.recur;
+    if (x instanceof CalcitList || x instanceof CalcitSliceList)
+        return PseudoTypeIndex.list;
+    if (x instanceof CalcitSet)
+        return PseudoTypeIndex.set;
+    if (x instanceof CalcitMap || x instanceof CalcitSliceMap)
+        return PseudoTypeIndex.map;
+    if (x instanceof CalcitRecord)
+        return PseudoTypeIndex.record;
+    if (x instanceof CalcitCirruQuote)
+        return PseudoTypeIndex.cirru_quote;
+    // proc, fn, macro, syntax, not distinguished
+    if (t === "function")
+        return PseudoTypeIndex.fn;
+    throw new Error("unknown type to compare");
+};
+let rawCompare = (x, y) => {
+    if (x < y) {
+        return -1;
+    }
+    else if (x > y) {
+        return 1;
+    }
+    else {
+        return 0;
+    }
+};
+let _$n_compare = (a, b) => {
+    if (a === b)
+        return 0;
+    let ta = typeAsInt(a);
+    let tb = typeAsInt(b);
+    if (ta === tb) {
+        switch (ta) {
+            case PseudoTypeIndex.nil:
+                return 0;
+            case PseudoTypeIndex.bool:
+                return rawCompare(a, b);
+            case PseudoTypeIndex.number:
+                return rawCompare(a, b);
+            case PseudoTypeIndex.tag:
+                return rawCompare(a.value, b.value);
+            case PseudoTypeIndex.symbol:
+                return rawCompare(a, b);
+            case PseudoTypeIndex.string:
+                return rawCompare(a, b);
+            case PseudoTypeIndex.ref:
+                return rawCompare(a.path, b.path);
+            case PseudoTypeIndex.cirru_quote:
+                return rawCompare(a, b); // TODO not stable
+            default:
+                // TODO, need more accurate solution
+                if (a < b) {
+                    return -1;
+                }
+                else if (a > b) {
+                    return 1;
+                }
+                else {
+                    return 0;
+                }
+        }
+    }
+    else {
+        return rawCompare(ta, tb);
+    }
+};
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/js-map.mjs
+
+
+
+
+
+/** need to compare by Calcit */
+let js_map_DATA_EQUAL = (x, y) => {
+    return x === y;
+};
+let overwriteMapComparator = (f) => {
+    js_map_DATA_EQUAL = f;
+};
+// a reference that equals to no other value(mainly for telling from `null`)
+let fakeUniqueSymbol = [];
+class CalcitMap {
+    constructor(value) {
+        if (value == null) {
+            this.value = initEmptyTernaryTreeMap();
+        }
+        else {
+            this.value = value;
+        }
+    }
+    len() {
+        return mapLen(this.value);
+    }
+    get(k) {
+        return mapGetDefault(this.value, k, null);
+    }
+    assoc(...args) {
+        if (args.length % 2 !== 0)
+            throw new Error("expected even arguments");
+        let size = Math.floor(args.length / 2);
+        let result = this.value;
+        for (let idx = 0; idx < size; idx++) {
+            let k = args[idx << 1];
+            let v = args[(idx << 1) + 1];
+            result = assocMap(result, k, v);
+        }
+        return new CalcitMap(result);
+    }
+    dissoc(...args) {
+        let ret = this.value;
+        for (let idx = 0; idx < args.length; idx++) {
+            ret = dissocMap(ret, args[idx]);
+        }
+        return new CalcitMap(ret);
+    }
+    toString(shorter = false, disableJsDataWarning = false) {
+        let itemsCode = "";
+        let pairs = this.pairs();
+        for (let idx = 0; idx < pairs.length; idx++) {
+            let k = pairs[idx][0];
+            let v = pairs[idx][1];
+            if (shorter) {
+                let keyPart = isNestedCalcitData(k) ? tipNestedCalcitData(k) : calcit_data_toString(k, true, disableJsDataWarning);
+                let valuePart = isNestedCalcitData(v) ? tipNestedCalcitData(v) : calcit_data_toString(v, true, disableJsDataWarning);
+                itemsCode = `${itemsCode} (${keyPart} ${valuePart})`;
+            }
+            else {
+                itemsCode = `${itemsCode} (${calcit_data_toString(k, true, disableJsDataWarning)} ${calcit_data_toString(v, true, disableJsDataWarning)})`;
+            }
+        }
+        return `({}${itemsCode})`;
+    }
+    isEmpty() {
+        return isMapEmpty(this.value);
+    }
+    pairs() {
+        return toPairsArray(this.value);
+    }
+    keysArray() {
+        return [...toKeys(this.value)];
+    }
+    contains(k) {
+        return contains(this.value, k);
+    }
+    merge(ys) {
+        return this.mergeSkip(ys, fakeUniqueSymbol);
+    }
+    mergeSkip(ys, v) {
+        if (ys == null) {
+            return this;
+        }
+        if (!(ys instanceof CalcitMap || ys instanceof CalcitSliceMap)) {
+            console.error("value:", v);
+            throw new Error("Expected map to merge");
+        }
+        if (ys instanceof CalcitSliceMap) {
+            let ret = this.value;
+            let size = ys.chunk.length >> 1;
+            for (let i = 0; i < size; i++) {
+                let pos = i << 1;
+                if (ys.chunk[pos + 1] === v) {
+                    continue;
+                }
+                ret = assocMap(ret, ys.chunk[pos], ys.chunk[pos + 1]);
+            }
+            return new CalcitMap(ret);
+        }
+        else {
+            return new CalcitMap(mergeSkip(this.value, ys.value, v));
+        }
+    }
+    /** TODO implement diff with low level code, opens opportunity for future optimizations */
+    diffNew(ys) {
+        let zs = this.value;
+        if (ys instanceof CalcitSliceMap) {
+            let size = ys.chunk.length >> 1;
+            for (let i = 0; i < size; i++) {
+                let pos = i << 1;
+                let k = ys.chunk[pos];
+                if (contains(zs, k)) {
+                    zs = dissocMap(zs, k);
+                }
+            }
+            return new CalcitMap(zs);
+        }
+        else if (ys instanceof CalcitMap) {
+            let ysKeys = ys.keysArray();
+            for (let i = 0; i < ysKeys.length; i++) {
+                let k = ysKeys[i];
+                if (contains(zs, k)) {
+                    zs = dissocMap(zs, k);
+                }
+            }
+            return new CalcitMap(zs);
+        }
+        else {
+            throw new Error("unknown data to diff");
+        }
+    }
+    /** TODO implement diff with low level code, opens opportunity for future optimizations */
+    diffKeys(ys) {
+        let ret = [];
+        let ks = this.keysArray();
+        for (let i = 0; i < ks.length; i++) {
+            let k = ks[i];
+            if (!ys.contains(k)) {
+                ret.push(k);
+            }
+        }
+        return new CalcitSet(ret);
+    }
+    /** TODO implement diff with low level code, opens opportunity for future optimizations */
+    commonKeys(ys) {
+        let ret = [];
+        let ks = this.keysArray();
+        for (let i = 0; i < ks.length; i++) {
+            let k = ks[i];
+            if (ys.contains(k)) {
+                ret.push(k);
+            }
+        }
+        return new CalcitSet(ret);
+    }
+    /** detecthing in custom formatter */
+    nestedDataInChildren() {
+        let pairs = this.pairs();
+        for (let idx = 0; idx < pairs.length; idx++) {
+            let k = pairs[idx][0];
+            let v = pairs[idx][1];
+            if (!isLiteral(k) || !isLiteral(v)) {
+                return true;
+            }
+        }
+    }
+}
+/* store small map in linear array to reduce cost of building tree  */
+class CalcitSliceMap {
+    constructor(value) {
+        if (value == null) {
+            this.chunk = [];
+        }
+        else if (Array.isArray(value)) {
+            this.chunk = value;
+        }
+        else {
+            throw new Error("unknown data for map");
+        }
+    }
+    /** convert to tree map when needed, also cached in case converted over and over again  */
+    turnMap() {
+        if (this.cachedTreeMapRef != null) {
+            return this.cachedTreeMapRef;
+        }
+        var dict = [];
+        let halfLength = this.chunk.length >> 1;
+        for (let idx = 0; idx < halfLength; idx++) {
+            dict.push([this.chunk[idx << 1], this.chunk[(idx << 1) + 1]]);
+        }
+        let value = initTernaryTreeMapFromArray(dict);
+        let ret = new CalcitMap(value);
+        this.cachedTreeMapRef = ret;
+        return ret;
+    }
+    len() {
+        return this.chunk.length >> 1;
+    }
+    get(k) {
+        if (this.chunk.length <= 16) {
+            let size = this.chunk.length >> 1;
+            for (let i = 0; i < size; i++) {
+                let pos = i << 1;
+                if (js_map_DATA_EQUAL(this.chunk[pos], k)) {
+                    return this.chunk[pos + 1];
+                }
+            }
+            return null;
+        }
+        else {
+            return this.turnMap().get(k);
+        }
+    }
+    assoc(...args) {
+        if (args.length % 2 !== 0)
+            throw new Error("expected even arguments");
+        let size = Math.floor(args.length / 2);
+        if (this.chunk.length <= 16) {
+            let ret = this.chunk.slice(0);
+            outer: for (let j = 0; j < size; j++) {
+                let k = args[j << 1];
+                let v = args[(j << 1) + 1];
+                for (let i = 0; i < ret.length; i += 2) {
+                    if (js_map_DATA_EQUAL(k, ret[i])) {
+                        ret[i + 1] = v;
+                        continue outer; // data recorded, goto next loop
+                    }
+                }
+                ret.push(k, v);
+            }
+            return new CalcitSliceMap(ret);
+        }
+        else {
+            return this.turnMap().assoc(...args);
+        }
+    }
+    dissoc(...args) {
+        if (this.chunk.length <= 16) {
+            let ret = [];
+            outer: for (let i = 0; i < this.chunk.length; i += 2) {
+                for (let j = 0; j < args.length; j++) {
+                    let k = args[j];
+                    if (js_map_DATA_EQUAL(k, this.chunk[i])) {
+                        continue outer;
+                    }
+                }
+                ret.push(this.chunk[i], this.chunk[i + 1]);
+            }
+            return new CalcitSliceMap(ret);
+        }
+        else {
+            return this.turnMap().dissoc(...args);
+        }
+    }
+    toString(shorter = false, disableJsDataWarning = false) {
+        let itemsCode = "";
+        let pairs = this.pairs();
+        for (let idx = 0; idx < pairs.length; idx++) {
+            let k = pairs[idx][0];
+            let v = pairs[idx][1];
+            if (shorter) {
+                let keyPart = isNestedCalcitData(k) ? tipNestedCalcitData(k) : calcit_data_toString(k, true, disableJsDataWarning);
+                let valuePart = isNestedCalcitData(v) ? tipNestedCalcitData(v) : calcit_data_toString(v, true, disableJsDataWarning);
+                itemsCode = `${itemsCode} (${keyPart} ${valuePart})`;
+            }
+            else {
+                itemsCode = `${itemsCode} (${calcit_data_toString(k, true, disableJsDataWarning)} ${calcit_data_toString(v, true, disableJsDataWarning)})`;
+            }
+        }
+        return `({}${itemsCode})`;
+    }
+    isEmpty() {
+        return this.chunk.length === 0;
+    }
+    pairs() {
+        let ret = [];
+        let size = this.chunk.length >> 1;
+        for (let i = 0; i < size; i++) {
+            let pos = i << 1;
+            ret.push([this.chunk[pos], this.chunk[pos + 1]]);
+        }
+        return ret;
+    }
+    keysArray() {
+        let ret = [];
+        let size = this.chunk.length >> 1;
+        for (let i = 0; i < size; i++) {
+            let pos = i << 1;
+            ret.push(this.chunk[pos]);
+        }
+        return ret;
+    }
+    contains(k) {
+        if (this.chunk.length <= 16) {
+            // guessed number
+            let size = this.chunk.length >> 1;
+            for (let i = 0; i < size; i++) {
+                let pos = i << 1;
+                if (js_map_DATA_EQUAL(this.chunk[pos], k)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        else {
+            return this.turnMap().contains(k);
+        }
+    }
+    merge(ys) {
+        return this.mergeSkip(ys, fakeUniqueSymbol);
+    }
+    mergeSkip(ys, v) {
+        if (ys == null) {
+            return this;
+        }
+        if (!(ys instanceof CalcitMap || ys instanceof CalcitSliceMap)) {
+            console.error("value:", v);
+            throw new Error("Expected map to merge");
+        }
+        if (ys instanceof CalcitSliceMap && this.chunk.length + ys.len() <= 24) {
+            // probably this length < 16, ys length < 8
+            let ret = this.chunk.slice(0);
+            outer: for (let i = 0; i < ys.chunk.length; i = i + 2) {
+                if (ys.chunk[i + 1] === v) {
+                    continue;
+                }
+                for (let k = 0; k < ret.length; k = k + 2) {
+                    if (js_map_DATA_EQUAL(ys.chunk[i], ret[k])) {
+                        ret[k + 1] = ys.chunk[i + 1];
+                        continue outer;
+                    }
+                }
+                ret.push(ys.chunk[i], ys.chunk[i + 1]);
+            }
+            return new CalcitSliceMap(ret);
+        }
+        return this.turnMap().mergeSkip(ys, v);
+    }
+    /** TODO implement diff with low level code, opens opportunity for future optimizations */
+    diffNew(ys) {
+        return this.turnMap().diffNew(ys);
+    }
+    /** TODO implement diff with low level code, opens opportunity for future optimizations */
+    diffKeys(ys) {
+        let ret = [];
+        let ks = this.keysArray();
+        for (let i = 0; i < ks.length; i++) {
+            let k = ks[i];
+            if (!ys.contains(k)) {
+                ret.push(k);
+            }
+        }
+        return new CalcitSet(ret);
+    }
+    /** TODO implement diff with low level code, opens opportunity for future optimizations */
+    commonKeys(ys) {
+        let ret = [];
+        let ks = this.keysArray();
+        for (let i = 0; i < ks.length; i++) {
+            let k = ks[i];
+            if (ys.contains(k)) {
+                ret.push(k);
+            }
+        }
+        return new CalcitSet(ret);
+    }
+    /** detecthing in custom formatter */
+    nestedDataInChildren() {
+        let pairs = this.pairs();
+        for (let idx = 0; idx < pairs.length; idx++) {
+            let k = pairs[idx][0];
+            let v = pairs[idx][1];
+            if (!isLiteral(k) || !isLiteral(v)) {
+                return true;
+            }
+        }
+    }
+}
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/calcit-data.mjs
+
+
+
+
+
+
+
+
+
+
+
+// we have to inject cache in a dirty way in some cases
+const calcit_dirty_hash_key = "_calcit_cached_hash";
+let tagIdx = 0;
+class CalcitTag {
+    constructor(x) {
+        this.value = x;
+        this.idx = tagIdx;
+        tagIdx++;
+        this.cachedHash = null;
+    }
+    toString() {
+        return `:${this.value}`;
+    }
+    cmp(other) {
+        if (this.idx < other.idx) {
+            return -1;
+        }
+        else if (this.idx > other.idx) {
+            return 1;
+        }
+        else {
+            return 0;
+        }
+    }
+}
+class CalcitSymbol {
+    constructor(x) {
+        this.value = x;
+        this.cachedHash = null;
+    }
+    toString() {
+        return `'${this.value}`;
+    }
+}
+class CalcitRecur {
+    constructor(xs) {
+        this.args = xs;
+        this.cachedHash = null;
+    }
+    toString() {
+        return `(&recur ...)`;
+    }
+}
+let isNestedCalcitData = (x) => {
+    if (x instanceof CalcitList || x instanceof CalcitSliceList) {
+        return x.len() > 0;
+    }
+    if (x instanceof CalcitMap || x instanceof CalcitSliceMap) {
+        return x.len() > 0;
+    }
+    if (x instanceof CalcitRecord) {
+        return x.fields.length > 0;
+    }
+    if (x instanceof CalcitSet) {
+        return false;
+    }
+    return false;
+};
+let tipNestedCalcitData = (x) => {
+    if (x instanceof CalcitList || x instanceof CalcitSliceList) {
+        return "'[]...";
+    }
+    if (x instanceof CalcitMap || x instanceof CalcitSliceMap) {
+        return "'{}...";
+    }
+    if (x instanceof CalcitRecord) {
+        return "'%{}...";
+    }
+    if (x instanceof CalcitSet) {
+        return "'#{}...";
+    }
+    return x.toString();
+};
+class CalcitRef {
+    constructor(x, path) {
+        this.value = x;
+        this.path = path;
+        this.listeners = new Map();
+        this.cachedHash = null;
+    }
+    toString() {
+        return `(&ref ${this.value.toString()})`;
+    }
+}
+let getStringName = (x) => {
+    if (typeof x === "string") {
+        return x;
+    }
+    if (x instanceof CalcitTag) {
+        return x.value;
+    }
+    if (x instanceof CalcitSymbol) {
+        return x.value;
+    }
+    throw new Error("Cannot get string as name");
+};
+/** returns -1 when not found */
+function findInFields(xs, y) {
+    let lower = 0;
+    let upper = xs.length - 1;
+    while (upper - lower > 1) {
+        let pos = (lower + upper) >> 1;
+        let v = xs[pos];
+        if (y.idx < v.idx) {
+            upper = pos - 1;
+        }
+        else if (y.idx > v.idx) {
+            lower = pos + 1;
+        }
+        else {
+            return pos;
+        }
+    }
+    if (y === xs[lower])
+        return lower;
+    if (y === xs[upper])
+        return upper;
+    return -1;
+}
+var tagRegistery = {};
+let newTag = (content) => {
+    let item = tagRegistery[content];
+    if (item != null) {
+        return item;
+    }
+    else {
+        let v = new CalcitTag(content);
+        tagRegistery[content] = v;
+        return v;
+    }
+};
+let castTag = (x) => {
+    if (x instanceof CalcitTag) {
+        return x;
+    }
+    if (typeof x === "string") {
+        return newTag(x);
+    }
+    if (x instanceof CalcitSymbol) {
+        return newTag(x.value);
+    }
+    throw new Error(`Cannot cast this to tag: ${x}`);
+};
+var refsRegistry = new Map();
+let defaultHash_nil = valueHash("nil:");
+let defaultHash_number = valueHash("number:");
+let defaultHash_string = valueHash("string:");
+let defaultHash_tag = valueHash("tag:");
+let defaultHash_true = valueHash("bool:true");
+let defaultHash_false = valueHash("bool:false");
+let defaultHash_symbol = valueHash("symbol:");
+let defaultHash_fn = valueHash("fn:");
+let defaultHash_ref = valueHash("ref:");
+let defaultHash_tuple = valueHash("tuple:");
+let defaultHash_set = valueHash("set:");
+let defaultHash_list = valueHash("list:");
+let defaultHash_map = valueHash("map:");
+let defaultHash_record = valueHash("record:");
+let defaultHash_cirru_quote = valueHash("cirru-quote:");
+let defaultHash_unknown = valueHash("unknown:");
+let fnHashCounter = 0;
+let jsObjectHashCounter = 0;
+let hashFunction = (x) => {
+    if (x == null) {
+        return defaultHash_nil;
+    }
+    if (typeof x === "number") {
+        return mergeValueHash(defaultHash_number, x);
+    }
+    if (typeof x === "string") {
+        return mergeValueHash(defaultHash_string, x);
+    }
+    // dirty solution of caching, trying to reduce cost
+    if (x.cachedHash != null) {
+        return x.cachedHash;
+    }
+    if (x[calcit_dirty_hash_key] != null) {
+        return x[calcit_dirty_hash_key];
+    }
+    if (x instanceof CalcitTag) {
+        let h = mergeValueHash(defaultHash_tag, x.idx);
+        x.cachedHash = h;
+        return h;
+    }
+    if (x === true) {
+        return defaultHash_true;
+    }
+    if (x === false) {
+        return defaultHash_false;
+    }
+    if (x instanceof CalcitSymbol) {
+        let h = mergeValueHash(defaultHash_symbol, x.value);
+        x.cachedHash = h;
+        return h;
+    }
+    if (typeof x === "function") {
+        fnHashCounter = fnHashCounter + 1;
+        let h = mergeValueHash(defaultHash_fn, fnHashCounter);
+        x[calcit_dirty_hash_key] = h;
+        return h;
+    }
+    if (x instanceof CalcitRef) {
+        let h = mergeValueHash(defaultHash_ref, x.path);
+        x.cachedHash = h;
+        return h;
+    }
+    if (x instanceof CalcitTuple) {
+        let base = defaultHash_tuple;
+        base = mergeValueHash(base, hashFunction(x.tag));
+        for (let idx = 0; idx < x.extra.length; idx++) {
+            let item = x.extra[idx];
+            base = mergeValueHash(base, hashFunction(item));
+        }
+        x.cachedHash = base;
+        return base;
+    }
+    if (x instanceof CalcitSet) {
+        let base = defaultHash_set;
+        let values = x.values();
+        // sort elements for stable hash result
+        values.sort((a, b) => _$n_compare(a, b));
+        for (let idx = 0; idx < values.length; idx++) {
+            let item = values[idx];
+            base = mergeValueHash(base, hashFunction(item));
+        }
+        return base;
+    }
+    if (x instanceof CalcitSliceList) {
+        let base = defaultHash_list;
+        // low-level code for perf
+        for (let idx = x.start; idx < x.end; idx++) {
+            let item = x.value[idx];
+            base = mergeValueHash(base, hashFunction(item));
+        }
+        x.cachedHash = base;
+        return base;
+    }
+    if (x instanceof CalcitList) {
+        let base = defaultHash_list;
+        for (let item of x.items()) {
+            base = mergeValueHash(base, hashFunction(item));
+        }
+        x.cachedHash = base;
+        return base;
+    }
+    if (x instanceof CalcitSliceMap) {
+        let base = defaultHash_map;
+        let pairs = x.pairs();
+        pairs.sort((a, b) => _$n_compare(a[0], b[0]));
+        for (let idx = 0; idx < pairs.length; idx++) {
+            let k = pairs[idx][0];
+            let v = pairs[idx][1];
+            base = mergeValueHash(base, hashFunction(k));
+            base = mergeValueHash(base, hashFunction(v));
+        }
+        x.cachedHash = base;
+        return base;
+    }
+    if (x instanceof CalcitMap) {
+        let base = defaultHash_map;
+        let pairs = x.pairs();
+        pairs.sort((a, b) => _$n_compare(a[0], b[0]));
+        for (let idx = 0; idx < pairs.length; idx++) {
+            let k = pairs[idx][0];
+            let v = pairs[idx][1];
+            base = mergeValueHash(base, hashFunction(k));
+            base = mergeValueHash(base, hashFunction(v));
+        }
+        x.cachedHash = base;
+        return base;
+    }
+    if (x instanceof CalcitRecord) {
+        let base = defaultHash_record;
+        for (let idx = 0; idx < x.fields.length; idx++) {
+            base = mergeValueHash(base, hashFunction(x.fields[idx]));
+            base = mergeValueHash(base, hashFunction(x.values[idx]));
+        }
+        x.cachedHash = base;
+        return base;
+    }
+    if (x instanceof CalcitCirruQuote) {
+        let base = defaultHash_cirru_quote;
+        base = hashCirru(base, x.value);
+        return base;
+    }
+    console.warn(`[warn] calcit-js has no method for hashing this: ${x}`);
+    // currently we use dirty solution here to generate a custom hash
+    // probably happening in .to-pairs of maps, putting a js object into a set
+    // better forbid this, use .to-list instead
+    let hashJsObject = defaultHash_unknown;
+    jsObjectHashCounter = jsObjectHashCounter + 1;
+    hashJsObject = mergeValueHash(hashJsObject, jsObjectHashCounter);
+    x[calcit_dirty_hash_key] = hashJsObject;
+    return hashJsObject;
+};
+/// traverse Cirru tree to make unique hash
+let hashCirru = (base, x) => {
+    if (typeof x === "string") {
+        return mergeValueHash(base, hashFunction(x));
+    }
+    else {
+        for (let idx = 0; idx < x.length; idx++) {
+            base = mergeValueHash(base, hashCirru(base, x[idx]));
+        }
+        return base;
+    }
+};
+// Dirty code to change ternary-tree behavior
+overwriteHashGenerator(hashFunction);
+let calcit_data_toString = (x, escaped, disableJsDataWarning = false) => {
+    if (x == null) {
+        return "nil";
+    }
+    if (typeof x === "string") {
+        if (escaped) {
+            // turn to visual string representation
+            if (/[\)\(\s\"]/.test(x)) {
+                return JSON.stringify("|" + x);
+            }
+            else {
+                return "|" + x;
+            }
+        }
+        else {
+            return x;
+        }
+    }
+    if (typeof x === "number") {
+        return x.toString();
+    }
+    if (typeof x === "boolean") {
+        return x.toString();
+    }
+    if (typeof x === "function") {
+        return `(&fn ...)`;
+    }
+    if (x instanceof CalcitSymbol) {
+        return x.toString();
+    }
+    if (x instanceof CalcitTag) {
+        return x.toString();
+    }
+    if (x instanceof CalcitList || x instanceof CalcitSliceList) {
+        return x.toString(false, disableJsDataWarning);
+    }
+    if (x instanceof CalcitMap || x instanceof CalcitSliceMap) {
+        return x.toString(false, disableJsDataWarning);
+    }
+    if (x instanceof CalcitSet) {
+        return x.toString(disableJsDataWarning);
+    }
+    if (x instanceof CalcitRecord) {
+        return x.toString(disableJsDataWarning);
+    }
+    if (x instanceof CalcitRef) {
+        return x.toString();
+    }
+    if (x instanceof CalcitTuple) {
+        return x.toString(disableJsDataWarning);
+    }
+    if (x instanceof CalcitCirruQuote) {
+        return x.toString();
+    }
+    if (!disableJsDataWarning) {
+        console.warn("Non Calcit data in stringify", x);
+    }
+    return `(#js ${JSON.stringify(x)})`;
+};
+let to_js_data = (x, addColon = false) => {
+    if (x == null) {
+        return null;
+    }
+    if (x === true || x === false) {
+        return x;
+    }
+    if (typeof x === "string") {
+        return x;
+    }
+    if (typeof x === "number") {
+        return x;
+    }
+    if (typeof x === "function") {
+        return x;
+    }
+    if (x instanceof CalcitTag) {
+        if (addColon) {
+            return `:${x.value}`;
+        }
+        return x.value;
+    }
+    if (x instanceof CalcitSymbol) {
+        if (addColon) {
+            return `:${x.value}`;
+        }
+        return Symbol(x.value);
+    }
+    if (x instanceof CalcitTuple) {
+        var result = [to_js_data(x.tag)];
+        for (let i = 0; i < x.extra.length; i++) {
+            let item = x.extra[i];
+            result.push(to_js_data(item));
+        }
+        return result;
+    }
+    if (x instanceof CalcitList || x instanceof CalcitSliceList) {
+        var result = [];
+        for (let item of x.items()) {
+            result.push(to_js_data(item, addColon));
+        }
+        return result;
+    }
+    if (x instanceof CalcitMap || x instanceof CalcitSliceMap) {
+        let result = {};
+        let pairs = x.pairs();
+        for (let idx = 0; idx < pairs.length; idx++) {
+            let k = pairs[idx][0];
+            let v = pairs[idx][1];
+            var key = to_js_data(k, addColon);
+            result[key] = to_js_data(v, addColon);
+        }
+        return result;
+    }
+    if (x instanceof CalcitSet) {
+        let result = new Set();
+        x.values().forEach((v) => {
+            result.add(to_js_data(v, addColon));
+        });
+        return result;
+    }
+    if (x instanceof CalcitRecord) {
+        let result = {};
+        for (let idx = 0; idx < x.fields.length; idx++) {
+            result[x.fields[idx].value] = to_js_data(x.values[idx]);
+        }
+        return result;
+    }
+    if (x instanceof CalcitRef) {
+        throw new Error("Cannot convert ref to plain data");
+    }
+    if (x instanceof CalcitRecur) {
+        throw new Error("Cannot convert recur to plain data");
+    }
+    return x;
+};
+let _$n_map_$o_get = function (xs, k) {
+    if (arguments.length !== 2) {
+        throw new Error("map &get takes 2 arguments");
+    }
+    if (xs instanceof CalcitMap || xs instanceof CalcitSliceMap)
+        return xs.get(k);
+    throw new Error("Does not support `&get` on this type");
+};
+let _$n__$e_ = (x, y) => {
+    if (x === y) {
+        return true;
+    }
+    if (x == null) {
+        if (y == null) {
+            return true;
+        }
+        return false;
+    }
+    let tx = typeof x;
+    let ty = typeof y;
+    if (tx !== ty) {
+        return false;
+    }
+    if (tx === "string") {
+        // already checked above
+        return false;
+    }
+    if (tx === "boolean") {
+        // already checked above
+        return false;
+    }
+    if (tx === "number") {
+        // already checked above
+        return false;
+    }
+    if (tx === "function") {
+        // comparing functions by reference
+        return x === y;
+    }
+    if (x instanceof CalcitTag) {
+        // comparing tags by reference
+        // already checked above
+        return false;
+    }
+    if (x instanceof CalcitSymbol) {
+        if (y instanceof CalcitSymbol) {
+            return x.value === y.value;
+        }
+        return false;
+    }
+    if (x instanceof CalcitCirruQuote) {
+        if (y instanceof CalcitCirruQuote) {
+            return cirru_deep_equal(x.value, y.value);
+        }
+        return false;
+    }
+    if (x instanceof CalcitList || x instanceof CalcitSliceList) {
+        if (y instanceof CalcitList || y instanceof CalcitSliceList) {
+            if (x.len() !== y.len()) {
+                return false;
+            }
+            let size = x.len();
+            for (let idx = 0; idx < size; idx++) {
+                let xItem = x.get(idx);
+                let yItem = y.get(idx);
+                if (!_$n__$e_(xItem, yItem)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+    if (x instanceof CalcitMap || x instanceof CalcitSliceMap) {
+        if (y instanceof CalcitMap || y instanceof CalcitSliceMap) {
+            if (x.len() !== y.len()) {
+                return false;
+            }
+            let pairs = x.pairs();
+            for (let idx = 0; idx < pairs.length; idx++) {
+                let k = pairs[idx][0];
+                let v = pairs[idx][1];
+                if (!y.contains(k)) {
+                    return false;
+                }
+                if (!_$n__$e_(v, _$n_map_$o_get(y, k))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+    if (x instanceof CalcitRef) {
+        if (y instanceof CalcitRef) {
+            return x.path === y.path;
+        }
+        return false;
+    }
+    if (x instanceof CalcitTuple) {
+        if (y instanceof CalcitTuple) {
+            return x.eq(y);
+        }
+        return false;
+    }
+    if (x instanceof CalcitSet) {
+        if (y instanceof CalcitSet) {
+            if (x.len() !== y.len()) {
+                return false;
+            }
+            let values = x.values();
+            for (let idx = 0; idx < values.length; idx++) {
+                let v = values[idx];
+                let found = false;
+                // testing by doing iteration is O(n2), could be slow
+                // but Set::contains does not satisfy here
+                let yValues = y.values();
+                for (let idx = 0; idx < yValues.length; idx++) {
+                    let yv = yValues[idx];
+                    if (_$n__$e_(v, yv)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    continue;
+                }
+                else {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+    if (x instanceof CalcitRecur) {
+        if (y instanceof CalcitRecur) {
+            console.warn("Do not compare Recur");
+            return false;
+        }
+        return false;
+    }
+    if (x instanceof CalcitRecord) {
+        if (y instanceof CalcitRecord) {
+            if (x.name !== y.name) {
+                return false;
+            }
+            if (!fieldsEqual(x.fields, y.fields)) {
+                return false;
+            }
+            if (x.values.length !== y.values.length) {
+                return false;
+            }
+            for (let idx = 0; idx < x.fields.length; idx++) {
+                if (!_$n__$e_(x.values[idx], y.values[idx])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+    throw new Error("Missing handler for this type");
+};
+// overwrite internary comparator of ternary-tree
+overwriteComparator(_$n__$e_);
+overwriteMapComparator(_$n__$e_);
+overwriteSetComparator(_$n__$e_);
+/** special trick for disabling ternary tree list check */
+let disable_list_structure_check_$x_ = disableListStructureCheck;
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/custom-formatter.mjs
+
+
+
+
+
+
+
+
+let embedObject = (x) => {
+    if (x == null) {
+        return null;
+    }
+    if (typeof x === "string") {
+        return span({ whiteSpace: "pre", color: hsl(120, 70, 50), maxWidth: "100vw" }, `|${x}`);
+    }
+    return ["object", { object: x }];
+};
+/** camel case to kabab case */
+let kabab = (s) => {
+    return s.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
+};
+/** returns {style: "..."} */
+let styles = (o) => {
+    let styleCode = "";
+    let keys = Object.keys(o);
+    for (let idx = 0; idx < keys.length; idx++) {
+        let key = keys[idx];
+        let value = o[key];
+        if (value) {
+            styleCode += `${kabab(key)}:${value};`;
+        }
+    }
+    return {
+        style: styleCode,
+    };
+};
+let hsl = (/** 0~360 */ h, /** 0~100 */ s, /** 0~100 */ l, /** 0~1 */ a) => {
+    if (a != null) {
+        return `hsla(${h}, ${s}%, ${l}%, ${a})`;
+    }
+    return `hsl(${h}, ${s}%, ${l}%)`;
+};
+/** create element */
+let div = (style, ...children) => {
+    return ["div", styles(style), ...children];
+};
+let span = (style, ...children) => {
+    return ["span", styles(style), ...children];
+};
+let table = (style, ...children) => {
+    return ["table", styles(style), ...children];
+};
+let tr = (style, ...children) => {
+    return ["tr", styles(style), ...children];
+};
+let td = (style, ...children) => {
+    return ["td", styles(style), ...children];
+};
+/** handle null value in nested data */
+let saveString = (v) => {
+    if (typeof v === "string") {
+        if (v.match(/[\s\"\n\t\,]/)) {
+            return `"|${v}"`;
+        }
+        else {
+            return `|${v}`;
+        }
+    }
+    else if (v != null && v.toString) {
+        return v.toString();
+    }
+    else {
+        return "nil";
+    }
+};
+let load_console_formatter_$x_ = () => {
+    if (typeof globalThis === "object") {
+        globalThis["devtoolsFormatters"] = [
+            {
+                header: (obj, config) => {
+                    if (obj instanceof CalcitTag) {
+                        return div({ color: hsl(240, 80, 60) }, obj.toString());
+                    }
+                    if (obj instanceof CalcitSymbol) {
+                        return div({ color: hsl(240, 80, 60) }, obj.toString());
+                    }
+                    if (obj instanceof CalcitList || obj instanceof CalcitSliceList) {
+                        let preview = "";
+                        let hasCollection = false;
+                        let size = obj.len();
+                        for (let idx = 0; idx < size; idx++) {
+                            preview += " ";
+                            if (isLiteral(obj.get(idx))) {
+                                preview += saveString(obj.get(idx));
+                            }
+                            else {
+                                preview += "..";
+                                hasCollection = true;
+                                break;
+                            }
+                        }
+                        return div({
+                            color: hasCollection ? hsl(280, 80, 60, 0.4) : hsl(280, 80, 60),
+                            marginRight: "16px",
+                        }, `[]`, span({
+                            fontSize: "8px",
+                            verticalAlign: "middle",
+                            color: hsl(280, 80, 80, 0.8),
+                        }, `${obj.len()}`), preview);
+                    }
+                    if (obj instanceof CalcitMap || obj instanceof CalcitSliceMap) {
+                        let preview = "";
+                        let hasCollection = false;
+                        let pairs = obj.pairs();
+                        for (let idx = 0; idx < pairs.length; idx++) {
+                            let k = pairs[idx][0];
+                            let v = pairs[idx][1];
+                            preview += " ";
+                            if (isLiteral(k) && isLiteral(v)) {
+                                preview += `(${saveString(k)} ${saveString(v)})`;
+                            }
+                            else {
+                                preview += "..";
+                                hasCollection = true;
+                                break;
+                            }
+                        }
+                        return div({ color: hasCollection ? hsl(280, 80, 60, 0.4) : hsl(280, 80, 60), marginRight: "16px", maxWidth: "100%", whiteSpace: "normal" }, "{}", preview);
+                    }
+                    if (obj instanceof CalcitSet) {
+                        let preview = "";
+                        let hasCollection = false;
+                        for (let item of obj.values()) {
+                            preview += " ";
+                            if (isLiteral(item)) {
+                                preview += saveString(item);
+                            }
+                            else {
+                                preview += "..";
+                                hasCollection = true;
+                                break;
+                            }
+                        }
+                        return div({ color: hasCollection ? hsl(280, 80, 60, 0.4) : hsl(280, 80, 60), marginRight: "16px" }, "#{}", span({
+                            fontSize: "8px",
+                            verticalAlign: "middle",
+                            color: hsl(280, 80, 80, 0.8),
+                        }, `${obj.len()}`), preview);
+                    }
+                    if (obj instanceof CalcitRecord) {
+                        if (obj.klass) {
+                            let ret = div({ color: hsl(280, 80, 60, 0.4), maxWidth: "100%" }, span({}, "%{}"), span({ marginLeft: "6px" }, embedObject(obj.klass)), span({ marginLeft: "6px" }, embedObject(obj.name)), span({ marginLeft: "6px" }, `...`));
+                            return ret;
+                        }
+                        else {
+                            let ret = div({ color: hsl(280, 80, 60, 0.4), maxWidth: "100%" }, `%{} ${obj.name} ...`);
+                            return ret;
+                        }
+                    }
+                    if (obj instanceof CalcitTuple) {
+                        if (obj.klass) {
+                            let ret = div({ marginRight: "16px" }, div({ display: "inline-block", color: hsl(300, 100, 40) }, "%::"), div({ marginLeft: "6px", display: "inline-block" }, embedObject(obj.klass)), div({ marginLeft: "6px", display: "inline-block" }, embedObject(obj.tag)));
+                            for (let idx = 0; idx < obj.extra.length; idx++) {
+                                ret.push(div({ marginLeft: "6px", display: "inline-block" }, embedObject(obj.extra[idx])));
+                            }
+                            return ret;
+                        }
+                        else {
+                            let ret = div({ marginRight: "16px" }, div({ display: "inline-block", color: hsl(300, 100, 40) }, "::"), div({ marginLeft: "6px", display: "inline-block" }, embedObject(obj.tag)));
+                            for (let idx = 0; idx < obj.extra.length; idx++) {
+                                ret.push(div({ marginLeft: "6px", display: "inline-block" }, embedObject(obj.extra[idx])));
+                            }
+                            return ret;
+                        }
+                    }
+                    if (obj instanceof CalcitRef) {
+                        return div({
+                            color: hsl(280, 80, 60),
+                        }, `Ref ${obj.path}`, div({ color: hsl(280, 80, 60) }, div({ marginLeft: "8px" }, embedObject(obj.value))));
+                    }
+                    if (obj instanceof CalcitCirruQuote) {
+                        return div({ color: hsl(280, 80, 60), display: "flex", marginRight: "16px" }, `CirruQuote`, div({ color: hsl(280, 80, 60), padding: "4px 4px", margin: "0 4px 2px", border: "1px solid hsl(0,70%,90%)", borderRadius: "4px" }, obj.textForm().trim()));
+                    }
+                    return null;
+                },
+                hasBody: (obj) => {
+                    if (obj instanceof CalcitList || obj instanceof CalcitSliceList) {
+                        let hasCollection = obj.nestedDataInChildren();
+                        return obj.len() > 0 && hasCollection;
+                    }
+                    if (obj instanceof CalcitMap || obj instanceof CalcitSliceMap) {
+                        let hasCollection = obj.nestedDataInChildren();
+                        return obj.len() > 0 && hasCollection;
+                    }
+                    if (obj instanceof CalcitSet) {
+                        let hasCollection = obj.nestedDataInChildren();
+                        return obj.len() > 0 && hasCollection;
+                    }
+                    if (obj instanceof CalcitRecord) {
+                        return obj.fields.length > 0;
+                    }
+                    return false;
+                },
+                body: (obj, config) => {
+                    if (obj instanceof CalcitList || obj instanceof CalcitSliceList) {
+                        let flexMode = obj.len() > 40 ? "inline-flex" : "flex";
+                        return div({ color: hsl(280, 80, 60), borderLeft: "1px solid #eee" }, ...obj.toArray().map((x, idx) => {
+                            return div({ marginLeft: "8px", display: flexMode, paddingRight: "16px" }, span({
+                                fontFamily: "monospace",
+                                marginRight: "8px",
+                                color: hsl(280, 80, 90),
+                                flexShrink: 0,
+                                fontSize: "10px",
+                                whiteSpace: "nowrap",
+                            }, idx), embedObject(x));
+                        }));
+                    }
+                    if (obj instanceof CalcitSet) {
+                        let ret = div({ color: hsl(280, 80, 60), borderLeft: "1px solid #eee" });
+                        let values = obj.values();
+                        for (let idx = 0; idx < values.length; idx++) {
+                            let x = values[idx];
+                            ret.push(div({ marginLeft: "8px", display: "inline-block" }, embedObject(x)));
+                        }
+                        return ret;
+                    }
+                    if (obj instanceof CalcitMap || obj instanceof CalcitSliceMap) {
+                        let ret = table({ color: hsl(280, 80, 60), borderLeft: "1px solid #eee" });
+                        let pairs = obj.pairs();
+                        pairs.sort((pa, pb) => {
+                            let ka = saveString(pa[0]);
+                            let kb = saveString(pb[0]);
+                            if (ka < kb) {
+                                return -1;
+                            }
+                            else if (ka > kb) {
+                                return 1;
+                            }
+                            else {
+                                return 0;
+                            }
+                        });
+                        for (let idx = 0; idx < pairs.length; idx++) {
+                            let k = pairs[idx][0];
+                            let v = pairs[idx][1];
+                            ret.push(tr({}, td({ paddingLeft: "8px", verticalAlign: "top", whiteSpace: "nowrap", minWidth: "40px" }, embedObject(k)), td({ paddingLeft: "8px" }, embedObject(v))));
+                        }
+                        return ret;
+                    }
+                    if (obj instanceof CalcitRecord) {
+                        let ret = table({ color: hsl(280, 80, 60), borderLeft: "1px solid #eee" });
+                        for (let idx = 0; idx < obj.fields.length; idx++) {
+                            ret.push(tr({}, td({ paddingLeft: "8px", verticalAlign: "top", whiteSpace: "pre", minWidth: "40px" }, embedObject(obj.fields[idx])), td({ paddingLeft: "8px" }, embedObject(obj.values[idx]))));
+                        }
+                        return ret;
+                    }
+                    return null;
+                },
+            },
+        ];
+    }
+};
+
+;// CONCATENATED MODULE: ./node_modules/@calcit/procs/lib/calcit.procs.mjs
+
+const calcit_version = package_namespaceObject.version;
+const calcit_package_json = package_namespaceObject;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+let inNodeJs = typeof process !== "undefined" && process?.release?.name === "node";
+let type_of = (x) => {
+    if (typeof x === "string") {
+        return newTag("string");
+    }
+    if (typeof x === "number") {
+        return newTag("number");
+    }
+    if (x instanceof CalcitTag) {
+        return newTag("tag");
+    }
+    if (x instanceof CalcitList || x instanceof CalcitSliceList) {
+        return newTag("list");
+    }
+    if (x instanceof CalcitMap || x instanceof CalcitSliceMap) {
+        return newTag("map");
+    }
+    if (x == null) {
+        return newTag("nil");
+    }
+    if (x instanceof CalcitRef) {
+        return newTag("ref");
+    }
+    if (x instanceof CalcitTuple) {
+        return newTag("tuple");
+    }
+    if (x instanceof CalcitSymbol) {
+        return newTag("symbol");
+    }
+    if (x instanceof CalcitSet) {
+        return newTag("set");
+    }
+    if (x instanceof CalcitRecord) {
+        return newTag("record");
+    }
+    if (x instanceof CalcitCirruQuote) {
+        return newTag("cirru-quote");
+    }
+    if (x === true || x === false) {
+        return newTag("bool");
+    }
+    if (typeof x === "function") {
+        if (x.isMacro) {
+            // this is faked...
+            return newTag("macro");
+        }
+        return newTag("fn");
+    }
+    if (typeof x === "object") {
+        return newTag("js-object");
+    }
+    throw new Error(`Unknown data ${x}`);
+};
+let print = (...xs) => {
+    // TODO stringify each values
+    console.log(xs.map((x) => calcit_data_toString(x, false)).join(" "));
+};
+function _$n_list_$o_count(x) {
+    if (x instanceof CalcitList || x instanceof CalcitSliceList)
+        return x.len();
+    throw new Error(`expected a list ${x}`);
+}
+function _$n_str_$o_count(x) {
+    if (typeof x === "string")
+        return x.length;
+    throw new Error(`expected a string ${x}`);
+}
+function _$n_map_$o_count(x) {
+    if (x instanceof CalcitMap || x instanceof CalcitSliceMap)
+        return x.len();
+    throw new Error(`expected a map ${x}`);
+}
+function _$n_record_$o_count(x) {
+    if (x instanceof CalcitRecord)
+        return x.fields.length;
+    throw new Error(`expected a record ${x}`);
+}
+function _$n_set_$o_count(x) {
+    if (x instanceof CalcitSet)
+        return x.len();
+    throw new Error(`expected a set ${x}`);
+}
+let _$L_ = (...xs) => {
+    return new CalcitSliceList(xs);
+};
+// single quote as alias for list
+let _SQUO_ = (...xs) => {
+    return new CalcitSliceList(xs);
+};
+let _$n__$M_ = (...xs) => {
+    if (xs.length % 2 !== 0) {
+        throw new Error("&map expects even number of arguments");
+    }
+    return new CalcitSliceMap(xs);
+};
+let defatom = (path, x) => {
+    let v = new CalcitRef(x, path);
+    refsRegistry.set(path, v);
+    return v;
+};
+var atomCounter = 0;
+let atom = (x) => {
+    atomCounter = atomCounter + 1;
+    let v = new CalcitRef(x, `atom-${atomCounter}`);
+    return v;
+};
+let peekDefatom = (path) => {
+    return refsRegistry.get(path);
+};
+let _$n_atom_$o_deref = (x) => {
+    if (x instanceof CalcitRef) {
+        return x.value;
+    }
+    else {
+        throw new Error("Expected CalcitRef");
+    }
+};
+let _$n__ADD_ = (x, y) => {
+    return x + y;
+};
+let _$n__$s_ = (x, y) => {
+    return x * y;
+};
+let _$n_str = (x) => {
+    return `${x}`;
+};
+let _$n_str_$o_contains_$q_ = (xs, x) => {
+    if (typeof xs === "string") {
+        if (typeof x != "number") {
+            throw new Error("Expected number index for detecting");
+        }
+        let size = xs.length;
+        if (x >= 0 && x < size) {
+            return true;
+        }
+        return false;
+    }
+    throw new Error("string `contains?` expected a string");
+};
+let _$n_list_$o_contains_$q_ = (xs, x) => {
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        if (typeof x != "number") {
+            throw new Error("Expected number index for detecting");
+        }
+        let size = xs.len();
+        if (x >= 0 && x < size) {
+            return true;
+        }
+        return false;
+    }
+    throw new Error("list `contains?` expected a list");
+};
+let _$n_map_$o_contains_$q_ = (xs, x) => {
+    if (xs instanceof CalcitMap || xs instanceof CalcitSliceMap)
+        return xs.contains(x);
+    throw new Error("map `contains?` expected a map");
+};
+let _$n_record_$o_contains_$q_ = (xs, x) => {
+    if (xs instanceof CalcitRecord)
+        return xs.contains(x);
+    throw new Error("record `contains?` expected a record");
+};
+let _$n_str_$o_includes_$q_ = (xs, x) => {
+    if (typeof xs === "string") {
+        if (typeof x !== "string") {
+            throw new Error("Expected string");
+        }
+        return xs.includes(x);
+    }
+    throw new Error("string includes? expected a string");
+};
+let _$n_list_$o_includes_$q_ = (xs, x) => {
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        let size = xs.len();
+        for (let v of xs.items()) {
+            if (_$n__$e_(v, x)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    throw new Error("list includes? expected a list");
+};
+let _$n_map_$o_includes_$q_ = (xs, x) => {
+    if (xs instanceof CalcitMap || xs instanceof CalcitSliceMap) {
+        let pairs = xs.pairs();
+        for (let idx = 0; idx < pairs.length; idx = idx + 1) {
+            let v = pairs[idx][1];
+            if (_$n__$e_(v, x)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    throw new Error("map includes? expected a map");
+};
+let _$n_set_$o_includes_$q_ = (xs, x) => {
+    if (xs instanceof CalcitSet) {
+        return xs.contains(x);
+    }
+    throw new Error("set includes? expected a set");
+};
+let _$n_str_$o_nth = function (xs, k) {
+    if (arguments.length !== 2)
+        throw new Error("nth takes 2 arguments");
+    if (typeof k !== "number")
+        throw new Error("Expected number index for a list");
+    if (typeof xs === "string")
+        return xs[k];
+    throw new Error("Does not support `nth` on this type");
+};
+let _$n_list_$o_nth = function (xs, k) {
+    if (arguments.length !== 2)
+        throw new Error("nth takes 2 arguments");
+    if (typeof k !== "number")
+        throw new Error("Expected number index for a list");
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList)
+        return xs.get(k);
+    throw new Error("Does not support `nth` on this type");
+};
+let _$n_tuple_$o_nth = function (xs, k) {
+    if (arguments.length !== 2)
+        throw new Error("nth takes 2 arguments");
+    if (typeof k !== "number")
+        throw new Error("Expected number index for a list");
+    if (xs instanceof CalcitTuple)
+        return xs.get(k);
+    throw new Error("Does not support `nth` on this type");
+};
+let _$n_tuple_$o_count = function (xs) {
+    if (arguments.length !== 1)
+        throw new Error("&tuple:count takes 1 arguments");
+    if (xs instanceof CalcitTuple)
+        return xs.count();
+    throw new Error("Does not support `count` on this type");
+};
+let _$n_tuple_$o_class = function (x) {
+    if (arguments.length !== 1)
+        throw new Error("&tuple:class takes 1 argument");
+    return x.klass;
+};
+let _$n_tuple_$o_params = function (x) {
+    if (arguments.length !== 1)
+        throw new Error("&tuple:params takes 1 argument");
+    return new CalcitSliceList(x.extra);
+};
+let _$n_tuple_$o_with_class = function (x, y) {
+    if (arguments.length !== 2)
+        throw new Error("&tuple:with-class takes 2 arguments");
+    if (!(x instanceof CalcitTuple))
+        throw new Error("&tuple:with-class expects a tuple");
+    if (!(y instanceof CalcitRecord))
+        throw new Error("&tuple:with-class expects second argument in record");
+    return new CalcitTuple(x.tag, x.extra, y);
+};
+let _$n_record_$o_get = function (xs, k) {
+    if (arguments.length !== 2) {
+        throw new Error("record &get takes 2 arguments");
+    }
+    if (xs instanceof CalcitRecord)
+        return xs.get(k);
+    throw new Error("Does not support `&get` on this type");
+};
+let _$n_list_$o_assoc = function (xs, k, v) {
+    if (arguments.length !== 3)
+        throw new Error("assoc takes 3 arguments");
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        if (typeof k !== "number") {
+            throw new Error("Expected number index for lists");
+        }
+        return xs.assoc(k, v);
+    }
+    throw new Error("list `assoc` expected a list");
+};
+let _$n_tuple_$o_assoc = function (xs, k, v) {
+    if (arguments.length !== 3)
+        throw new Error("assoc takes 3 arguments");
+    if (xs instanceof CalcitTuple) {
+        if (typeof k !== "number") {
+            throw new Error("Expected number index for lists");
+        }
+        return xs.assoc(k, v);
+    }
+    throw new Error("tuple `assoc` expected a tuple");
+};
+let _$n_map_$o_assoc = function (xs, ...args) {
+    if (arguments.length < 3)
+        throw new Error("assoc takes at least 3 arguments");
+    if (args.length % 2 !== 0)
+        throw new Error("assoc expected odd arguments");
+    if (xs instanceof CalcitMap || xs instanceof CalcitSliceMap)
+        return xs.assoc(...args);
+    throw new Error("map `assoc` expected a map");
+};
+let _$n_record_$o_assoc = function (xs, k, v) {
+    if (arguments.length !== 3)
+        throw new Error("assoc takes 3 arguments");
+    if (xs instanceof CalcitRecord)
+        return xs.assoc(k, v);
+    throw new Error("record `assoc` expected a record");
+};
+let _$n_record_$o_class = function (xs) {
+    if (arguments.length !== 1)
+        throw new Error("&record:class takes 1 argument");
+    if (xs instanceof CalcitRecord)
+        return xs.klass;
+    throw new Error("&record:class expected a record");
+};
+let _$n_record_$o_with_class = function (xs, k) {
+    if (arguments.length !== 2)
+        throw new Error("&record:with-class takes 2 arguments");
+    if (xs instanceof CalcitRecord)
+        return xs.withClass(k);
+    throw new Error("&record:with-class expected a record");
+};
+let _$n_list_$o_assoc_before = function (xs, k, v) {
+    if (arguments.length !== 3) {
+        throw new Error("assoc takes 3 arguments");
+    }
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        if (typeof k !== "number") {
+            throw new Error("Expected number index for lists");
+        }
+        return xs.assocBefore(k, v);
+    }
+    throw new Error("Does not support `assoc-before` on this type");
+};
+let _$n_list_$o_assoc_after = function (xs, k, v) {
+    if (arguments.length !== 3) {
+        throw new Error("assoc takes 3 arguments");
+    }
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        if (typeof k !== "number") {
+            throw new Error("Expected number index for lists");
+        }
+        return xs.assocAfter(k, v);
+    }
+    throw new Error("Does not support `assoc-after` on this type");
+};
+let _$n_list_$o_dissoc = function (xs, k) {
+    if (arguments.length !== 2)
+        throw new Error("dissoc takes 2 arguments");
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        if (typeof k !== "number")
+            throw new Error("Expected number index for lists");
+        return xs.dissoc(k);
+    }
+    throw new Error("`dissoc` expected a list");
+};
+let _$n_map_$o_dissoc = function (xs, ...args) {
+    if (args.length < 1)
+        throw new Error("dissoc takes at least 2 arguments");
+    if (xs instanceof CalcitMap || xs instanceof CalcitSliceMap) {
+        return xs.dissoc(...args);
+    }
+    throw new Error("`dissoc` expected a map");
+};
+let reset_$x_ = (a, v) => {
+    if (!(a instanceof CalcitRef)) {
+        throw new Error("Expected ref for reset!");
+    }
+    let prev = a.value;
+    a.value = v;
+    a.listeners.forEach((f) => {
+        f(v, prev);
+    });
+    return null;
+};
+let add_watch = (a, k, f) => {
+    if (!(a instanceof CalcitRef)) {
+        throw new Error("Expected ref for add-watch!");
+    }
+    if (!(k instanceof CalcitTag)) {
+        throw new Error("Expected watcher key in tag");
+    }
+    if (!(typeof f === "function")) {
+        throw new Error("Expected watcher function");
+    }
+    a.listeners.set(k, f);
+    return null;
+};
+let remove_watch = (a, k) => {
+    a.listeners.delete(k);
+    return null;
+};
+let range = (n, m, step = 1) => {
+    var result = new CalcitSliceList([]);
+    if (m != null) {
+        var idx = n;
+        while (idx < m) {
+            result = result.append(idx);
+            idx = idx + step;
+        }
+    }
+    else {
+        var idx = 0;
+        while (idx < n) {
+            result = result.append(idx);
+            idx = idx + step;
+        }
+    }
+    return result;
+};
+function _$n_list_$o_empty_$q_(xs) {
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList)
+        return xs.isEmpty();
+    throw new Error(`expected a list ${xs}`);
+}
+function _$n_str_$o_empty_$q_(xs) {
+    if (typeof xs === "string")
+        return xs.length === 0;
+    throw new Error(`expected a string ${xs}`);
+}
+function _$n_map_$o_empty_$q_(xs) {
+    if (xs instanceof CalcitMap || xs instanceof CalcitSliceMap)
+        return xs.isEmpty();
+    throw new Error(`expected a list ${xs}`);
+}
+function _$n_set_$o_empty_$q_(xs) {
+    if (xs instanceof CalcitSet)
+        return xs.len() === 0;
+    throw new Error(`expected a list ${xs}`);
+}
+let _$n_list_$o_first = (xs) => {
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        if (xs.isEmpty()) {
+            return null;
+        }
+        return xs.first();
+    }
+    console.error(xs);
+    throw new Error("Expected a list");
+};
+let _$n_str_$o_first = (xs) => {
+    if (typeof xs === "string") {
+        return xs[0];
+    }
+    console.error(xs);
+    throw new Error("Expected a string");
+};
+let _$n_map_$o_destruct = (xs) => {
+    if (xs instanceof CalcitMap || xs instanceof CalcitSliceMap) {
+        // order not stable
+        if (xs.len() > 0) {
+            let pair = xs.pairs()[0];
+            let k0 = pair[0];
+            return new CalcitSliceList([pair[0], pair[1], xs.dissoc(k0)]);
+        }
+        else {
+            return null;
+        }
+    }
+    console.error(xs);
+    throw new Error("Expected a map");
+};
+let _$n_set_$o_destruct = (xs) => {
+    if (xs instanceof CalcitSet)
+        return xs.destruct();
+    console.error(xs);
+    throw new Error("Expect a set");
+};
+let timeout_call = (duration, f) => {
+    if (typeof duration !== "number") {
+        throw new Error("Expected duration in number");
+    }
+    if (typeof f !== "function") {
+        throw new Error("Expected callback in fn");
+    }
+    setTimeout(f, duration);
+    return null;
+};
+let _$n_list_$o_rest = (xs) => {
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        if (xs.len() === 0) {
+            return null;
+        }
+        return xs.rest();
+    }
+    console.error(xs);
+    throw new Error("Expected a list");
+};
+let _$n_str_$o_rest = (xs) => {
+    if (typeof xs === "string")
+        return xs.slice(1);
+    console.error(xs);
+    throw new Error("Expects a string");
+};
+let recur = (...xs) => {
+    return new CalcitRecur(xs);
+};
+let _$n_get_calcit_backend = () => {
+    return newTag("js");
+};
+let not = (x) => {
+    return !x;
+};
+let calcit_procs_prepend = (xs, v) => {
+    if (!(xs instanceof CalcitList || xs instanceof CalcitSliceList)) {
+        throw new Error("Expected array");
+    }
+    return xs.prepend(v);
+};
+let calcit_procs_append = (xs, v) => {
+    if (!(xs instanceof CalcitList || xs instanceof CalcitSliceList)) {
+        throw new Error("Expected array");
+    }
+    return xs.append(v);
+};
+let calcit_procs_last = (xs) => {
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        if (xs.isEmpty()) {
+            return null;
+        }
+        return xs.get(xs.len() - 1);
+    }
+    if (typeof xs === "string") {
+        return xs[xs.length - 1];
+    }
+    console.error(xs);
+    throw new Error("Data not ready for last");
+};
+let calcit_procs_butlast = (xs) => {
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        if (xs.len() === 0) {
+            return null;
+        }
+        return xs.slice(0, xs.len() - 1);
+    }
+    if (typeof xs === "string") {
+        return xs.slice(0, -1);
+    }
+    console.error(xs);
+    throw new Error("Data not ready for butlast");
+};
+let initCrTernary = (x) => {
+    console.error("Ternary for js not implemented yet!");
+    return null;
+};
+let _SHA__$M_ = (...xs) => {
+    var result = [];
+    for (let idx = 0; idx < xs.length; idx++) {
+        result.push(xs[idx]);
+    }
+    return new CalcitSet(result);
+};
+let idCounter = 0;
+let generate_id_$x_ = () => {
+    // TODO use nanoid.. this code is wrong
+    idCounter = idCounter + 1;
+    let time = Date.now();
+    return `gen_id_${idCounter}_${time}`;
+};
+let _$n_display_stack = () => {
+    console.trace();
+    return null;
+};
+let _$n_list_$o_slice = (xs, from, to) => {
+    if (xs == null) {
+        return null;
+    }
+    let size = xs.len();
+    if (to == null) {
+        to = size;
+    }
+    else if (to <= from) {
+        return new CalcitSliceList([]);
+    }
+    else if (to > size) {
+        to = size;
+    }
+    return xs.slice(from, to);
+};
+let _$n_list_$o_concat = (...lists) => {
+    let result = new CalcitSliceList([]);
+    for (let idx = 0; idx < lists.length; idx++) {
+        let item = lists[idx];
+        if (item == null) {
+            continue;
+        }
+        if (item instanceof CalcitList || item instanceof CalcitSliceList) {
+            if (result.isEmpty()) {
+                result = item;
+            }
+            else {
+                result = result.concat(item);
+            }
+        }
+        else {
+            throw new Error("Expected list for concatenation");
+        }
+    }
+    return result;
+};
+let _$n_list_$o_reverse = (xs) => {
+    if (xs == null) {
+        return null;
+    }
+    return xs.reverse();
+};
+let format_ternary_tree = () => {
+    console.warn("No such function for js");
+    return null;
+};
+let _$n__GT_ = (a, b) => {
+    return a > b;
+};
+let _$n__LT_ = (a, b) => {
+    return a < b;
+};
+let _$n__ = (a, b) => {
+    return a - b;
+};
+let _$n__SLSH_ = (a, b) => {
+    return a / b;
+};
+let _$n_number_$o_rem = (a, b) => {
+    return a % b;
+};
+let round_$q_ = (a) => {
+    return a === Math.round(a);
+};
+let _$n_str_$o_concat = (a, b) => {
+    let buffer = "";
+    if (a != null) {
+        buffer += calcit_data_toString(a, false);
+    }
+    if (b != null) {
+        buffer += calcit_data_toString(b, false);
+    }
+    return buffer;
+};
+let sort = (xs, f) => {
+    if (xs == null) {
+        return null;
+    }
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        let ys = xs.toArray();
+        return new CalcitSliceList(ys.sort(f));
+    }
+    throw new Error("Expected list");
+};
+let floor = (n) => {
+    return Math.floor(n);
+};
+let _$n_merge = (a, b) => {
+    if (a == null) {
+        return b;
+    }
+    if (b == null) {
+        return a;
+    }
+    if (a instanceof CalcitMap || a instanceof CalcitSliceMap) {
+        if (b instanceof CalcitMap || b instanceof CalcitSliceMap) {
+            return a.merge(b);
+        }
+        else {
+            throw new Error("Expected an argument of map");
+        }
+    }
+    if (a instanceof CalcitRecord) {
+        if (b instanceof CalcitMap || b instanceof CalcitSliceMap) {
+            let values = [];
+            for (let idx = 0; idx < a.values.length; idx++) {
+                values.push(a.values[idx]);
+            }
+            let pairs = b.pairs();
+            for (let idx = 0; idx < pairs.length; idx++) {
+                let k = pairs[idx][0];
+                let v = pairs[idx][1];
+                let field;
+                if (k instanceof CalcitTag) {
+                    field = k;
+                }
+                else {
+                    field = newTag(getStringName(k));
+                }
+                let position = a.findIndex(field);
+                if (position >= 0) {
+                    values[position] = v;
+                }
+                else {
+                    throw new Error(`Cannot find field ${field} among (${a.fields.join(", ")})`);
+                }
+            }
+            return new CalcitRecord(a.name, a.fields, values);
+        }
+    }
+    throw new Error("Expected map or record");
+};
+let _$n_merge_non_nil = (a, b) => {
+    if (a == null) {
+        return b;
+    }
+    if (b == null) {
+        return a;
+    }
+    if (!(a instanceof CalcitMap || a instanceof CalcitSliceMap)) {
+        throw new Error("Expected map");
+    }
+    if (!(b instanceof CalcitMap || b instanceof CalcitSliceMap)) {
+        throw new Error("Expected map");
+    }
+    return a.mergeSkip(b, null);
+};
+let to_pairs = (xs) => {
+    if (xs instanceof CalcitMap || xs instanceof CalcitSliceMap) {
+        let result = [];
+        let pairs = xs.pairs();
+        for (let idx = 0; idx < pairs.length; idx++) {
+            result.push(new CalcitSliceList(pairs[idx]));
+        }
+        return new CalcitSet(result);
+    }
+    else if (xs instanceof CalcitRecord) {
+        let arr_result = [];
+        for (let idx = 0; idx < xs.fields.length; idx++) {
+            arr_result.push(new CalcitSliceList([xs.fields[idx], xs.values[idx]]));
+        }
+        return new CalcitSet(arr_result);
+    }
+    else {
+        throw new Error("Expected a map");
+    }
+};
+// Math functions
+let sin = (n) => {
+    return Math.sin(n);
+};
+let cos = (n) => {
+    return Math.cos(n);
+};
+let pow = (n, m) => {
+    return Math.pow(n, m);
+};
+let ceil = (n) => {
+    return Math.ceil(n);
+};
+let round = (n) => {
+    return Math.round(n);
+};
+let _$n_number_$o_fract = (n) => {
+    return n - Math.floor(n);
+};
+let sqrt = (n) => {
+    return Math.sqrt(n);
+};
+// Set functions
+let _$n_include = (xs, y) => {
+    if (!(xs instanceof CalcitSet)) {
+        throw new Error("Expected a set");
+    }
+    if (y == null) {
+        return xs;
+    }
+    return xs.include(y);
+};
+let _$n_exclude = (xs, y) => {
+    if (!(xs instanceof CalcitSet)) {
+        throw new Error("Expected a set");
+    }
+    if (y == null) {
+        return xs;
+    }
+    return xs.exclude(y);
+};
+let _$n_difference = (xs, ys) => {
+    if (!(xs instanceof CalcitSet)) {
+        throw new Error("Expected a set");
+    }
+    if (!(ys instanceof CalcitSet)) {
+        throw new Error("Expected a set for ys");
+    }
+    return xs.difference(ys);
+};
+let _$n_union = (xs, ys) => {
+    if (!(xs instanceof CalcitSet)) {
+        throw new Error("Expected a set");
+    }
+    if (!(ys instanceof CalcitSet)) {
+        throw new Error("Expected a set for ys");
+    }
+    return xs.union(ys);
+};
+let _$n_set_$o_intersection = (xs, ys) => {
+    if (!(xs instanceof CalcitSet)) {
+        throw new Error("Expected a set");
+    }
+    if (!(ys instanceof CalcitSet)) {
+        throw new Error("Expected a set for ys");
+    }
+    return xs.intersection(ys);
+};
+let _$n_str_$o_replace = (x, y, z) => {
+    var result = x;
+    while (result.indexOf(y) >= 0) {
+        result = result.replace(y, z);
+    }
+    return result;
+};
+let split = (xs, x) => {
+    return new CalcitSliceList(xs.split(x));
+};
+let split_lines = (xs) => {
+    return new CalcitSliceList(xs.split("\n"));
+};
+let _$n_str_$o_slice = (xs, m, n) => {
+    if (n <= m) {
+        console.warn("endIndex too small");
+        return "";
+    }
+    return xs.substring(m, n);
+};
+let _$n_str_$o_find_index = (x, y) => {
+    return x.indexOf(y);
+};
+let parse_float = (x) => {
+    return parseFloat(x);
+};
+let trim = (x, c) => {
+    if (c != null) {
+        if (c.length !== 1) {
+            throw new Error("Expceted c of a character");
+        }
+        var buffer = x;
+        var size = buffer.length;
+        var idx = 0;
+        while (idx < size && buffer[idx] === c) {
+            idx = idx + 1;
+        }
+        buffer = buffer.substring(idx);
+        var size = buffer.length;
+        var idx = size;
+        while (idx > 1 && buffer[idx - 1] === c) {
+            idx = idx - 1;
+        }
+        buffer = buffer.substring(0, idx);
+        return buffer;
+    }
+    return x.trim();
+};
+let _$n_number_$o_format = (x, n) => {
+    return x.toFixed(n);
+};
+let _$n_number_$o_display_by = (x, n) => {
+    switch (n) {
+        case 2:
+            return `0b${x.toString(2)}`;
+        case 8:
+            return `0o${x.toString(8)}`;
+        case 16:
+            return `0x${x.toString(16)}`;
+        default:
+            throw new Error("Expected n of 2, 8, or 16");
+    }
+};
+let get_char_code = (c) => {
+    if (typeof c !== "string" || c.length !== 1) {
+        throw new Error("Expected a character");
+    }
+    return c.charCodeAt(0);
+};
+let char_from_code = (n) => {
+    if (typeof n !== "number")
+        throw new Error("Expected an integer");
+    return String.fromCharCode(n);
+};
+let _$n_set_$o_to_list = (x) => {
+    return new CalcitSliceList(x.values());
+};
+let aget = (x, name) => {
+    return x[name];
+};
+let aset = (x, name, v) => {
+    return (x[name] = v);
+};
+let js_get = aget;
+let js_set = aset;
+/** generates `delete a.b` */
+let js_delete = (obj, name) => {
+    return delete obj[name];
+};
+let get_env = (name, v0) => {
+    let v = undefined;
+    if (inNodeJs) {
+        // only available for Node.js
+        v = process.env[name];
+    }
+    else if (typeof URLSearchParams != null && typeof location != null) {
+        v = new URLSearchParams(location.search).get(name);
+    }
+    if (v != null && v0 != null) {
+        console.log(`(get-env ${name}): ${v}`);
+    }
+    if (v == null && v0 == null) {
+        console.warn(`(get-env "${name}"): config not found`);
+    }
+    return v ?? v0;
+};
+let turn_tag = (x) => {
+    if (typeof x === "string") {
+        return newTag(x);
+    }
+    if (x instanceof CalcitTag) {
+        return x;
+    }
+    if (x instanceof CalcitSymbol) {
+        return newTag(x.value);
+    }
+    console.error(x);
+    throw new Error("Unexpected data for tag");
+};
+let turn_symbol = (x) => {
+    if (typeof x === "string") {
+        return new CalcitSymbol(x);
+    }
+    if (x instanceof CalcitSymbol) {
+        return x;
+    }
+    if (x instanceof CalcitTag) {
+        return new CalcitSymbol(x.value);
+    }
+    console.error(x);
+    throw new Error("Unexpected data for symbol");
+};
+let to_lispy_string = (...args) => {
+    return args.map((x) => calcit_data_toString(x, true)).join(" ");
+};
+/** helper function for println, js only */
+let printable = (...args) => {
+    return args.map((x) => calcit_data_toString(x, false)).join(" ");
+};
+// time from app start
+let cpu_time = () => {
+    if (inNodeJs) {
+        // uptime returns in seconds
+        return process.uptime() * 1000;
+    }
+    // returns in milliseconds
+    return performance.now();
+};
+let quit_$x_ = () => {
+    if (inNodeJs) {
+        process.exit(1);
+    }
+    else {
+        throw new Error("quit!()");
+    }
+};
+let turn_string = (x) => {
+    if (x == null) {
+        return "";
+    }
+    if (typeof x === "string") {
+        return x;
+    }
+    if (x instanceof CalcitTag) {
+        return x.value;
+    }
+    if (x instanceof CalcitSymbol) {
+        return x.value;
+    }
+    if (typeof x === "number") {
+        return x.toString();
+    }
+    if (typeof x === "boolean") {
+        return x.toString();
+    }
+    console.error(x);
+    throw new Error("Unexpected data to turn string");
+};
+let identical_$q_ = (x, y) => {
+    return x === y;
+};
+let starts_with_$q_ = (xs, y) => {
+    if (typeof xs === "string" && typeof y === "string") {
+        return xs.startsWith(y);
+    }
+    if (xs instanceof CalcitTag && y instanceof CalcitTag) {
+        return xs.value.startsWith(y.value);
+    }
+    if (xs instanceof CalcitTag && typeof y === "string") {
+        return xs.value.startsWith(y);
+    }
+    throw new Error("expected strings or tags");
+};
+let ends_with_$q_ = (xs, y) => {
+    return xs.endsWith(y);
+};
+let blank_$q_ = (x) => {
+    if (x == null) {
+        return true;
+    }
+    if (typeof x === "string") {
+        return x.trim() === "";
+    }
+    else {
+        throw new Error("Expected a string");
+    }
+};
+let _$n_str_$o_compare = (x, y) => {
+    if (x < y) {
+        return -1;
+    }
+    if (x > y) {
+        return 1;
+    }
+    return 0;
+};
+let arrayToList = (xs) => {
+    return new CalcitSliceList(xs ?? []);
+};
+let listToArray = (xs) => {
+    if (xs == null) {
+        return null;
+    }
+    if (xs instanceof CalcitList || xs instanceof CalcitSliceList) {
+        return xs.toArray();
+    }
+    else {
+        throw new Error("Expected list");
+    }
+};
+let number_$q_ = (x) => {
+    return typeof x === "number";
+};
+let string_$q_ = (x) => {
+    return typeof x === "string";
+};
+let bool_$q_ = (x) => {
+    return typeof x === "boolean";
+};
+let nil_$q_ = (x) => {
+    return x == null;
+};
+let tag_$q_ = (x) => {
+    return x instanceof CalcitTag;
+};
+let map_$q_ = (x) => {
+    return x instanceof CalcitSliceMap || x instanceof CalcitMap;
+};
+let list_$q_ = (x) => {
+    return x instanceof CalcitSliceList || x instanceof CalcitList;
+};
+let set_$q_ = (x) => {
+    return x instanceof CalcitSet;
+};
+let fn_$q_ = (x) => {
+    return typeof x === "function";
+};
+let ref_$q_ = (x) => {
+    return x instanceof CalcitRef;
+};
+let record_$q_ = (x) => {
+    return x instanceof CalcitRecord;
+};
+let tuple_$q_ = (x) => {
+    return x instanceof CalcitTuple;
+};
+let buffer_$q_ = (x) => {
+    console.warn("TODO, detecting buffer");
+    return false;
+};
+let _$n_str_$o_escape = (x) => JSON.stringify(x);
+let read_file = (path) => {
+    if (inNodeJs) {
+        // TODO
+        globalThis["__calcit_injections__"].read_file(path);
+    }
+    else {
+        // no actual File API in browser
+        return localStorage.get(path) ?? "";
+    }
+};
+let write_file = (path, content) => {
+    if (inNodeJs) {
+        // TODO
+        globalThis["__calcit_injections__"].write_file(path, content);
+    }
+    else {
+        // no actual File API in browser
+        localStorage.setItem(path, content);
+    }
+};
+let parse_cirru = (code) => {
+    return new CalcitCirruQuote((0,lib/* parse */.Q)(code));
+};
+// for JavaScript, it's same as parse_cirru
+let parse_cirru_list = (code) => {
+    return to_calcit_data((0,lib/* parse */.Q)(code), true);
+};
+let parse_cirru_edn = (code, options) => {
+    let nodes = (0,lib/* parse */.Q)(code);
+    if (nodes.length === 1) {
+        return extract_cirru_edn(nodes[0], options);
+    }
+    else {
+        throw new Error(`Expected EDN in a single node, got ${nodes.length}`);
+    }
+};
+let format_to_lisp = (x) => {
+    if (x == null) {
+        return "nil";
+    }
+    else if (x instanceof CalcitSymbol) {
+        return x.value;
+    }
+    else if (x instanceof CalcitList || x instanceof CalcitSliceList) {
+        let chunk = "(";
+        for (let item of x.items()) {
+            if (chunk != "(") {
+                chunk += " ";
+            }
+            chunk += format_to_lisp(item);
+        }
+        chunk += ")";
+        return chunk;
+    }
+    else if (typeof x === "string") {
+        return JSON.stringify("|" + x);
+    }
+    else {
+        return x.toString();
+    }
+};
+let format_to_cirru = (x) => {
+    let xs = transform_code_to_cirru(x);
+    console.log("tree", xs);
+    return (0,writer/* writeCirruCode */.N)([xs], { useInline: false });
+};
+let transform_code_to_cirru = (x) => {
+    if (x == null) {
+        return "nil";
+    }
+    else if (x instanceof CalcitSymbol) {
+        return x.value;
+    }
+    else if (x instanceof CalcitList || x instanceof CalcitSliceList) {
+        let xs = [];
+        for (let item of x.items()) {
+            xs.push(transform_code_to_cirru(item));
+        }
+        return xs;
+    }
+    else if (typeof x === "string") {
+        return JSON.stringify("|" + x);
+    }
+    else {
+        return x.toString();
+    }
+};
+/** for quickly creating js Array */
+let js_array = (...xs) => {
+    return xs;
+};
+let _$n_js_object = (...xs) => {
+    if (xs.length % 2 !== 0) {
+        throw new Error("&js-object expects even number of arguments");
+    }
+    var ret = {}; // object
+    let halfLength = xs.length >> 1;
+    for (let idx = 0; idx < halfLength; idx++) {
+        let k = xs[idx << 1];
+        let v = xs[(idx << 1) + 1];
+        if (typeof k === "string") {
+            ret[k] = v;
+        }
+        else if (k instanceof CalcitTag) {
+            ret[turn_string(k)] = v;
+        }
+        else {
+            throw new Error("Invalid key for js Object");
+        }
+    }
+    return ret;
+};
+let _$o__$o_ = (tagName, ...extra) => {
+    return new CalcitTuple(tagName, extra, null);
+};
+let _PCT__$o__$o_ = (klass, tag, ...extra) => {
+    return new CalcitTuple(tag, extra, klass);
+};
+// mutable place for core to register
+let calcit_builtin_classes = {
+    number: null,
+    string: null,
+    set: null,
+    list: null,
+    map: null,
+    nil: null,
+    fn: null,
+};
+// need to register code from outside
+let register_calcit_builtin_classes = (options) => {
+    Object.assign(calcit_builtin_classes, options);
+};
+/** method used as closure */
+function invoke_method_closure(p) {
+    return (obj, ...args) => {
+        return invoke_method(p, obj, ...args);
+    };
+}
+function lookup_class(obj) {
+    let klass;
+    let tag;
+    if (obj instanceof CalcitList || obj instanceof CalcitSliceList) {
+        tag = "&core-list-class";
+        klass = calcit_builtin_classes.list;
+    }
+    else if (obj instanceof CalcitMap || obj instanceof CalcitSliceMap) {
+        tag = "&core-map-class";
+        klass = calcit_builtin_classes.map;
+    }
+    else if (obj instanceof CalcitRecord) {
+        if (obj.klass instanceof CalcitRecord) {
+            tag = obj.name.toString();
+            klass = obj.klass;
+        }
+        else {
+            throw new Error("Method invoking expected a record as class");
+        }
+    }
+    else if (obj instanceof CalcitTuple) {
+        if (obj.klass instanceof CalcitRecord) {
+            tag = obj.tag.toString();
+            klass = obj.klass;
+        }
+        else {
+            throw new Error("Method invoking expected a record as class");
+        }
+    }
+    else if (obj instanceof CalcitSet) {
+        tag = "&core-set-class";
+        klass = calcit_builtin_classes.set;
+    }
+    else if (obj == null) {
+        tag = "&core-nil-class";
+        klass = calcit_builtin_classes.nil;
+    }
+    else if (typeof obj === "number") {
+        tag = "&core-number-class";
+        klass = calcit_builtin_classes.number;
+    }
+    else if (typeof obj === "string") {
+        tag = "&core-string-class";
+        klass = calcit_builtin_classes.string;
+    }
+    else if (typeof obj === "function") {
+        tag = "&core-fn-class";
+        klass = calcit_builtin_classes.fn;
+    }
+    else {
+        return null;
+    }
+    return [klass, tag];
+}
+function invoke_method(p, obj, ...args) {
+    let pair = lookup_class(obj);
+    if (pair == null) {
+        throw new Error(`No class for ${obj?.toString() || JSON.stringify(obj)} to lookup .${p}`);
+    }
+    let klass = pair[0];
+    let tag = pair[1];
+    let method = klass.getOrNil(p);
+    if (method == null) {
+        throw new Error(`No method '.${p}' for '${tag}' object '${obj}'.\navailable fields are: ${klass.fields.map((fd) => fd.value).join(" ")}`);
+    }
+    if (typeof method === "function") {
+        return method(obj, ...args);
+    }
+    else {
+        throw new Error("Method for invoking is not a function");
+    }
+}
+let _$n_map_$o_to_list = (m) => {
+    if (m instanceof CalcitMap || m instanceof CalcitSliceMap) {
+        let ys = [];
+        let pairs = m.pairs();
+        for (let idx = 0; idx < pairs.length; idx++) {
+            let pair = pairs[idx];
+            ys.push(new CalcitSliceList(pair));
+        }
+        return new CalcitSliceList(ys);
+    }
+    else {
+        throw new Error("&map:to-list expected a Map");
+    }
+};
+let _$n_map_$o_diff_new = (a, b) => {
+    if ((a instanceof CalcitMap || a instanceof CalcitSliceMap) && (b instanceof CalcitMap || b instanceof CalcitSliceMap)) {
+        return a.diffNew(b);
+    }
+    else {
+        throw new Error("expected 2 maps");
+    }
+};
+let _$n_map_$o_diff_keys = (a, b) => {
+    if ((a instanceof CalcitMap || a instanceof CalcitSliceMap) && (b instanceof CalcitMap || b instanceof CalcitSliceMap)) {
+        return a.diffKeys(b);
+    }
+    else {
+        throw new Error("expected 2 maps");
+    }
+};
+let _$n_map_$o_common_keys = (a, b) => {
+    if ((a instanceof CalcitMap || a instanceof CalcitSliceMap) && (b instanceof CalcitMap || b instanceof CalcitSliceMap)) {
+        return a.commonKeys(b);
+    }
+    else {
+        throw new Error("expected 2 maps");
+    }
+};
+let bit_shr = (base, step) => {
+    return base >> step;
+};
+let bit_shl = (base, step) => {
+    return base << step;
+};
+let bit_and = (a, b) => {
+    return a & b;
+};
+let bit_or = (a, b) => {
+    return a | b;
+};
+let bit_xor = (a, b) => {
+    return a ^ b;
+};
+let bit_not = (a) => {
+    return ~a;
+};
+let _$n_list_$o_to_set = (xs) => {
+    var result = [];
+    let data = xs.toArray();
+    for (let idx = 0; idx < data.length; idx++) {
+        result.push(data[idx]);
+    }
+    return new CalcitSet(result);
+};
+let _$n_list_$o_distinct = (xs) => {
+    var result = [];
+    let data = xs.toArray();
+    outer: for (let idx = 0; idx < data.length; idx++) {
+        for (let j = 0; j < result.length; j++) {
+            if (_$n__$e_(data[idx], result[j])) {
+                continue outer;
+            }
+        }
+        result.push(data[idx]);
+    }
+    return new CalcitSliceList(result);
+};
+let _$n_str_$o_pad_left = (s, size, pattern) => {
+    return s.padStart(size, pattern);
+};
+let _$n_str_$o_pad_right = (s, size, pattern) => {
+    return s.padEnd(size, pattern);
+};
+let _$n_get_os = () => {
+    return newTag("js-engine");
+};
+let _$n_buffer = (...xs) => {
+    let buf = new Uint8Array(xs.length);
+    for (let idx = 0; idx < xs.length; idx++) {
+        let x = xs[idx];
+        if (typeof x === "number") {
+            buf[idx] = x;
+        }
+        else if (typeof x === "string") {
+            buf[idx] = parseInt(x, 16);
+        }
+        else {
+            throw new Error("invalid value for buffer");
+        }
+    }
+    return buf;
+};
+let _$n_cirru_nth = (xs, idx) => {
+    if (xs instanceof CalcitCirruQuote) {
+        return xs.nth(idx);
+    }
+    else {
+        throw new Error("Expected a Cirru Quote");
+    }
+};
+let _$n_cirru_type = (xs, idx) => {
+    if (xs instanceof CalcitCirruQuote) {
+        return Array.isArray(xs.value) ? newTag("list") : newTag("leaf");
+    }
+    else {
+        throw new Error("Expected a Cirru Quote");
+    }
+};
+let _$n_hash = (x) => {
+    return hashFunction(x);
+};
+let _$n_cirru_quote_$o_to_list = (x) => {
+    return x.toList();
+};
+// special procs have to be defined manually
+let reduce = foldl;
+let unavailableProc = (...xs) => {
+    console.warn("NOT available for calcit-js");
+};
+// not available for calcit-js
+let _$n_reset_gensym_index_$x_ = unavailableProc;
+let gensym = unavailableProc;
+let macroexpand = unavailableProc;
+let macroexpand_all = unavailableProc;
+let _$n_get_calcit_running_mode = unavailableProc;
+let _calcit_args_mismatch = (name, expected, got) => {
+    return new Error(`\`${name}\` expected ${expected} params, got ${got}`);
+};
+// already handled in code emitter
+let raise = unavailableProc;
+
+
 /***/ })
 
 /******/ 	});
@@ -30506,6 +38227,34 @@ module.exports = parseParams
 /******/ 	}
 /******/ 	
 /************************************************************************/
+/******/ 	/* webpack/runtime/define property getters */
+/******/ 	(() => {
+/******/ 		// define getter functions for harmony exports
+/******/ 		__nccwpck_require__.d = (exports, definition) => {
+/******/ 			for(var key in definition) {
+/******/ 				if(__nccwpck_require__.o(definition, key) && !__nccwpck_require__.o(exports, key)) {
+/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 				}
+/******/ 			}
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
+/******/ 	(() => {
+/******/ 		__nccwpck_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/make namespace object */
+/******/ 	(() => {
+/******/ 		// define __esModule on exports
+/******/ 		__nccwpck_require__.r = (exports) => {
+/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
+/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
+/******/ 			}
+/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
+/******/ 		};
+/******/ 	})();
+/******/ 	
 /******/ 	/* webpack/runtime/compat */
 /******/ 	
 /******/ 	if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = __dirname + "/";

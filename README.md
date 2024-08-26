@@ -11,11 +11,13 @@ basic usages:
 ```yml
 - uses: calcit-lang/setup-cr@0.0.4
   with:
-    version: "0.9.1"
+    version: "0.9.4"
     bundler: false
 ```
 
 Calcit latest: ![Calcit Version](https://img.shields.io/github/v/release/calcit-lang/calcit)
+
+`version` is also optional when `deps.cirru` is provided, which declares `:calcit-version`.
 
 ### License
 

@@ -2,8 +2,9 @@ const path = require("path");
 const fs = require("fs");
 const core = require("@actions/core");
 const tc = require("@actions/tool-cache");
+const { to_js_data, parse_cirru_edn } = require("@calcit/procs");
 
-const version = core.getInput("version");
+let version = null;
 const bundler = core.getInput("bundler");
 
 const binFolder = `/home/runner/bin/`;
@@ -29,6 +30,25 @@ async function setup(bin) {
 module.exports = setup;
 
 if (require.main === module) {
+  if (fs.existsSync("deps.cirru")) {
+    console.log("Reading deps.cirru");
+    const depsCirru = fs.readFileSync("deps.cirru", "utf8");
+    const deps = to_js_data(parse_cirru_edn(depsCirru));
+    console.log("deps", deps);
+    version = deps["calcit-version"];
+  }
+
+  if (!version) {
+    version = core.getInput("version");
+  }
+
+  if (!version) {
+    core.setFailed(
+      "Version is not set, neither in deps.cirru (calcit-verison) nor in input(version)"
+    );
+    return;
+  }
+
   console.log(`Setting up Calcit ${version}`);
   setup("cr");
   setup("caps");

@@ -4,7 +4,7 @@ description: Setup Calcit runner
 inputs:
   version:
     description: "Version of Calcit to install"
-    required: true
+    required: false
     default: 0.9.2
   bundler:
     description: "download calcit bunder_command"

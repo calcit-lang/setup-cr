@@ -1,6 +1,6 @@
 {
   "name": "setup-cr",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Setup Calcit runtime",
   "main": "./index.js",
   "repository": "git@github.com:calcit-lang/setup-cr.git",
@@ -15,10 +15,11 @@
     "stage-dist"
   ],
   "dependencies": {
-    "@actions/core": "^1.10.1",
-    "@actions/tool-cache": "^2.0.1"
+    "@actions/tool-cache": "^2.0.1",
+    "@calcit/procs": "^0.9.4"
   },
   "devDependencies": {
+    "@actions/core": "^1.10.1",
     "@vercel/ncc": "^0.38.1",
     "pre-commit": "^1.2.2"
   }
