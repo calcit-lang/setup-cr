@@ -34,12 +34,13 @@ if (require.main === module) {
     console.log("Reading deps.cirru");
     const depsCirru = fs.readFileSync("deps.cirru", "utf8");
     const deps = to_js_data(parse_cirru_edn(depsCirru));
-    console.log("deps", deps);
+    // console.log("deps", deps);
     version = deps["calcit-version"];
   }
 
-  if (!version) {
-    version = core.getInput("version");
+  const inputVersion = core.getInput("version");
+  if (inputVersion) {
+    version = inputVersion;
   }
 
   if (!version) {
@@ -49,7 +50,7 @@ if (require.main === module) {
     return;
   }
 
-  console.log(`Setting up Calcit ${version}`);
+  console.log(`Setting up Calcit ${version}, with bundler: ${bundler}`);
   setup("cr");
   setup("caps");
   if (bundler) {

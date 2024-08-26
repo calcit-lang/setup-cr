@@ -5,9 +5,9 @@ inputs:
   version:
     description: "Version of Calcit to install"
     required: false
-    default: 0.9.2
+    default: 0.9.4
   bundler:
-    description: "download calcit bunder_command"
+    description: "Whethere to download calcit bunder_command"
     required: false
     default: false
 
