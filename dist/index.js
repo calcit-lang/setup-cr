@@ -11,7 +11,8 @@ const tc = __nccwpck_require__(7784);
 const { to_js_data, parse_cirru_edn } = __nccwpck_require__(1618);
 
 let version = null;
-const bundler = core.getInput("bundler");
+
+const bundler = core.getInput("bundler") === "true";
 
 const binFolder = `/home/runner/bin/`;
 

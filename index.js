@@ -5,7 +5,8 @@ const tc = require("@actions/tool-cache");
 const { to_js_data, parse_cirru_edn } = require("@calcit/procs");
 
 let version = null;
-const bundler = core.getInput("bundler");
+
+const bundler = core.getInput("bundler") === "true";
 
 const binFolder = `/home/runner/bin/`;
 
