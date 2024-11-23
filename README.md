@@ -1,23 +1,29 @@
 ## Action to setup [Calcit scripting language](https://calcit-lang.org/)
 
-basic usages:
+basic usages, to install:
 
-- `cr` command
-- `caps` command
-- `bundle_calcit` command, when `bundler` is set to `true`
+- `cr` for compiling Calcit code
+- `caps` for adding dependencies
+- `bundle_calcit` optional to bundle hand-written `.cirru` files
 
 ### Usage
 
 ```yml
-- uses: calcit-lang/setup-cr@0.0.7
+- uses: calcit-lang/setup-cr@0.0.8
   with:
-    version: "0.9.4"
+    version: "0.9.6"
     bundler: false
 ```
 
 Calcit latest: ![Calcit Version](https://img.shields.io/github/v/release/calcit-lang/calcit)
 
-`version` is also optional when `deps.cirru` is provided, which declares `:calcit-version`.
+options:
+
+- in `deps.cirru` file, `:calcit-version |0.9.6` to specify the version(higher priority)
+- optional `version` in yml file
+- optional `bundler` to enable bundler
+
+at least one version should be specified.
 
 ### License
 
