@@ -33,4 +33,4 @@ jobs:
         cr --help
         caps --help
         cr-wasm --help
-        cr -e "range 100"
+        cr eval "range 100"
