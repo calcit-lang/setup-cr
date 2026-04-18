@@ -9,6 +9,10 @@ inputs:
     description: "Whethere to download calcit bunder_command"
     required: false
     default: false
+  cr-wasm:
+    description: "Whether to download the cr-wasm binary (available from v0.12.22+)"
+    required: false
+    default: false
 
 runs:
   using: node20

@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        version: [ 0.8.38 ]
+        version: [ 0.12.23 ]
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -26,9 +26,11 @@ jobs:
       uses: ./
       with:
         version: ${{ matrix.version }}
+        cr-wasm: true
 
     - name: Capture Calcit
       run: |
         cr --help
         caps --help
+        cr-wasm --help
         cr -e "range 100"

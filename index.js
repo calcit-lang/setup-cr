@@ -1,12 +1,19 @@
-const path = require("path");
 const fs = require("fs");
 const core = require("@actions/core");
 const tc = require("@actions/tool-cache");
-const { to_js_data, parse_cirru_edn } = require("@calcit/procs");
 
 let version = null;
 
 const bundler = core.getInput("bundler") === "true";
+const crWasm = core.getInput("cr-wasm") === "true";
+
+/** Extract calcit-version from deps.cirru without an EDN parser.
+ *  Format:  {} (:calcit-version |0.12.23)
+ */
+function readVersionFromDeps(content) {
+  const m = content.match(/:calcit-version\s+\|?([^\s)\n]+)/);
+  return m ? m[1] : null;
+}
 
 const binFolder = `/home/runner/bin/`;
 
@@ -34,9 +41,7 @@ if (require.main === module) {
   if (fs.existsSync("deps.cirru")) {
     console.log("Reading deps.cirru");
     const depsCirru = fs.readFileSync("deps.cirru", "utf8");
-    const deps = to_js_data(parse_cirru_edn(depsCirru));
-    // console.log("deps", deps);
-    version = deps["calcit-version"];
+    version = readVersionFromDeps(depsCirru);
   }
 
   const inputVersion = core.getInput("version");
@@ -51,10 +56,13 @@ if (require.main === module) {
     return;
   }
 
-  console.log(`Setting up Calcit ${version}, with bundler: ${bundler}`);
+  console.log(`Setting up Calcit ${version}, with bundler: ${bundler}, cr-wasm: ${crWasm}`);
   setup("cr");
   setup("caps");
   if (bundler) {
     setup("bundle_calcit");
+  }
+  if (crWasm) {
+    setup("cr-wasm");
   }
 }
