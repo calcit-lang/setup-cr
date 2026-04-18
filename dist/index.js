@@ -14,7 +14,7 @@ const bundler = core.getInput("bundler") === "true";
 const crWasm = core.getInput("cr-wasm") === "true";
 
 /** Extract calcit-version from deps.cirru without an EDN parser.
- *  Format:  {} (:calcit-version |0.12.23)
+ *  Format:  {} (:calcit-version |0.12.24)
  */
 function readVersionFromDeps(content) {
   const m = content.match(/:calcit-version\s+\|?([^\s)\n]+)/);
@@ -57,12 +57,14 @@ if (require.main === require.cache[eval('__filename')]) {
 
   if (!version) {
     core.setFailed(
-      "Version is not set, neither in deps.cirru (calcit-verison) nor in input(version)"
+      "Version is not set, neither in deps.cirru (calcit-verison) nor in input(version)",
     );
     return;
   }
 
-  console.log(`Setting up Calcit ${version}, with bundler: ${bundler}, cr-wasm: ${crWasm}`);
+  console.log(
+    `Setting up Calcit ${version}, with bundler: ${bundler}, cr-wasm: ${crWasm}`,
+  );
   setup("cr");
   setup("caps");
   if (bundler) {
